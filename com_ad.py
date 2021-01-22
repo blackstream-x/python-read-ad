@@ -2,7 +2,7 @@
 
 """
 
-active_directory
+com_ad
 
 A lightweight wrapper around COM support
 for Active Directory read access.
@@ -696,11 +696,11 @@ class LdapEntry:
 
     def child(self, relative_path):
         """Return the relative child of this entry. The relative_path
-        is inserted into this entry's AD path to make a coherent AD
-        path for a child entry, eg:
+        is inserted into this entry's AD path to make a coherent LDAP path
+        for a child entry, eg:
 
-        import active_directory
-        root = active_directory.root()
+        import com_ad
+        root = com_ad.root()
         users = root.child('cn=Users')
         """
         return produce_entry(from_path=LdapPath(relative_path, *self.path))
