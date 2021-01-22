@@ -876,16 +876,16 @@ class PublicFolder(LdapEntry):
 
     """Active Directory public folder"""
 
-    pass
+    ...
 
 
 ENTRY_CLASSES = {
-    "user" : User,
-    "computer" : Computer,
-    "group" : Group,
-    "organizationalUnit" : OrganisationalUnit,
-    "domainDNS" : DomainDNS,
-    "publicFolder" : PublicFolder}
+    'user': User,
+    'computer': Computer,
+    'group': Group,
+    'organizationalUnit': OrganisationalUnit,
+    'domainDNS': DomainDNS,
+    'publicFolder': PublicFolder}
 
 
 #
