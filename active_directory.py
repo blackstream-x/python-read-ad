@@ -1,18 +1,19 @@
 # -*- coding: utf-8 -*-
+
 """
 
 active_directory
 
-a lightweight wrapper around COM support for Active Directory
+A lightweight wrapper around COM support
+for Active Directory read access.
 
 Based on original version 0.6.7 by Tim Golden
 (see <http://timgolden.me.uk/python/active_directory.html>)
 with a few cherry-picks from the current implementation
 (<https://github.com/tjguk/active_directory/blob/master/active_directory.py>)
 
-Rewrite for Python3 with minimal external dependencies
-(i.e. win32com.client and win32security)
-by Rainer Schwarzbach, 2021-01-19
+Rewrite for Python3 with minimized dependencies
+by Rainer Schwarzbach, 2021-01-22
 
 License: MIT
 
@@ -36,9 +37,15 @@ BASE_TIME = datetime.datetime(1601, 1, 1)
 TIME_NEVER_HIGH_PART = 0x7fffffff
 TIME_NEVER_KEYWORD = '<never>'
 
-LDAP_URL_PREFIX = 'LDAP://'
+ADO_COMMAND = 'ADODB.Command'
+ADO_CONNECTION = 'ADODB.Connection'
+CONNECTION_PROVIDER = 'ADsDSOObject'
+CONNECTION_TARGET = 'Active Directory Provider'
 
-_CACHE = {}
+CACHE_KEY_CONNECTION = '_Connection_'
+CACHE_KEY_ROOT = '_ActiveDirectoryRoot_'
+
+GLOBAL_CACHE = {}
 
 
 #
@@ -49,57 +56,34 @@ _CACHE = {}
 def connection():
     """Open a new connection or return the cached existing one"""
     try:
-        return _CACHE['connection']
+        existing_connection = GLOBAL_CACHE[CACHE_KEY_CONNECTION]
     except KeyError:
-        new_connection = win32com.client.Dispatch('ADODB.Connection')
-        new_connection.Provider = 'ADsDSOObject'
-        new_connection.Open('Active Directory Provider')
-        return _CACHE.setdefault('connection', new_connection)
+        new_connection = win32com.client.Dispatch(ADO_CONNECTION)
+        new_connection.Provider = CONNECTION_PROVIDER
+        new_connection.Open(CONNECTION_TARGET)
+        return GLOBAL_CACHE.setdefault(CACHE_KEY_CONNECTION, new_connection)
     #
-
-
-def ldap_url(ldap_path):
-    """Return the path prefixed with LDAP_URL_PREFIX"""
-    if ldap_path.upper().startswith(LDAP_URL_PREFIX):
-        return ldap_path
+    if not existing_connection.state:
+        # Reopen the connection if necessary
+        existing_connection.Open(CONNECTION_TARGET)
     #
-    return '%s%s' % (LDAP_URL_PREFIX, ldap_path)
+    return existing_connection
 
 
-def signed_to_unsigned(signed):
+def signed_to_unsigned(number):
     """Convert a signed integer to an unsigned one,
-    taken from the current upstream implementation
+    adapted from the current upstream implementation
     <https://github.com/tjguk/active_directory/
      blob/master/active_directory.py>
     """
-    return struct.unpack('L', struct.pack('l', signed))[0]
-
-
-def _add_path(root_path, relative_path):
-    """Add another level to an LDAP path, eg:
-
-    _add_path('LDAP://DC=gb,DC=vo,DC=local', "cn=Users")
-      => "LDAP://cn=users,DC=gb,DC=vo,DC=local"
-    """
-    if relative_path.startswith(LDAP_URL_PREFIX):
-        return relative_path
+    if number >= 0:
+        return number
     #
-    if root_path.startswith(LDAP_URL_PREFIX):
-        start_path = root_path[len(LDAP_URL_PREFIX):]
-    else:
-        start_path = root_path
-    #
-    return '%s%s,%s' % (LDAP_URL_PREFIX, relative_path, start_path)
-
-
-# Conversion of Active Directory Objects' properties
+    return struct.unpack('L', struct.pack('l', number))[0]
 
 
 def convert_to_datetime(ad_time):
     """Return a datetime from active directory.
-
-    from <https://ldapwiki.com/wiki/Microsoft%20TIME>
-    'Microsoft TIME is a mess.'
 
     numeric_date is the number of 100-nanosecond intervals
     since 12:00 AM January 1, 1601, see
@@ -126,30 +110,32 @@ def convert_to_datetime(ad_time):
     #
 
 
+def convert_to_guid(item):
+    """Return a GUID from an LDAP entry's property"""
+    if item is None:
+        return None
+    #
+    guid = convert_to_hex(item)
+    slice_borders = (8, 12, 16, 20)
+    return '{%s}' % '-'.join(
+        guid[slice(*pair)]
+        for pair in zip((None, *slice_borders), (*slice_borders, None)))
+
+
+def convert_to_hex(item):
+    """Return a hexadecimal representation of binary data"""
+    if item is None:
+        return None
+    #
+    return ''.join('%02x' % (char & 0xff) for char in bytes(item))
+
+
 def convert_to_sid(item):
     """Return a PySID from binary data"""
     if item is None:
         return None
     #
     return win32security.SID(bytes(item))
-
-
-def convert_to_guid(item):
-    """Return a GUID from an Active Directory object's property"""
-    if item is None:
-        return None
-    #
-    guid = convert_to_hex(item)
-    return '{%s-%s-%s-%s-%s}' % (
-        guid[:8], guid[8:12], guid[12:16], guid[16:20], guid[20:])
-
-
-def convert_to_hex(item):
-    """Retirn a hexadecimal representation of binary data"""
-    if item is None:
-        return None
-    #
-    return ''.join('%02x' % (char & 0xff) for char in bytes(item))
 
 
 #
@@ -167,56 +153,56 @@ class UnsignedIntegerMapping():
         """Initialize the internal mappings
         from the keyword arguments
         """
-        self._name_map = {}
-        self._number_map = {}
+        self.__by_names = {}
+        self.__by_numbers = {}
         for name, number in kwargs.items():
-            self._name_map[name] = number
-            self._number_map[number] = name
+            number = signed_to_unsigned(number)
+            self.__by_names[name] = number
+            self.__by_numbers[number] = name
 
     def __getitem__(self, item):
         """Get number by name or name by number"""
         try:
-            return self._name_map[item]
+            return self.__by_names[item]
         except KeyError:
-            return self._number_map[signed_to_unsigned(item)]
+            return self.__by_numbers[signed_to_unsigned(item)]
         #
 
-    def item_names(self):
-        """(name, number) items"""
-        return self._name_map.items()
+    def items(self):
+        """Items: by name"""
+        return self.__by_names.items()
 
-    def item_numbers(self):
-        """(number, name) items"""
-        return self._number_map.items()
+    def __repr__(self):
+        """Return a readable presentation of the entire mapping"""
+        return '<%s: %s>' % (
+            self.__class__.__name__,
+            ', '.join(
+                '%s <=> %s' % (name, number)
+                for (name, number) in self.items()))
 
-    def get(self, item):
-        """Return the matching name"""
-        if item is None:
+    def get_name(self, number):
+        """Return the name assigned to the number"""
+        if number is None:
             return None
         #
-        return self[item]
+        return self.__by_numbers[signed_to_unsigned(number)]
 
 
 class FlagsMapping(UnsignedIntegerMapping):
 
-    """Return a set of flag names when calling
-    self.get_flag_names(number)
-    """
+    """Mapping of flags to bitmasks"""
 
     def get_flag_names(self, number):
-        """Return a set of flag names"""
+        """Return a set of flag names
+        matching the number via bitmask
+        """
         if number is None:
             return None
         #
         unsigned_number = signed_to_unsigned(number)
         return set(
-            name for (bitmask, name) in self.item_numbers()
-            if unsigned_number & bitmask)
-
-
-#
-# Flag and value mapping constants
-#
+            name for (name, bitmask) in self.items()
+            if unsigned_number & bitmask == bitmask)
 
 
 GROUP_TYPES = FlagsMapping(
@@ -224,8 +210,7 @@ GROUP_TYPES = FlagsMapping(
     DOMAIN_LOCAL_GROUP=0x00000004,
     LOCAL_GROUP=0x00000004,
     UNIVERSAL_GROUP=0x00000008,
-    SECURITY_ENABLED=0x80000000,
-)
+    SECURITY_ENABLED=0x80000000)
 
 AUTHENTICATION_TYPES = FlagsMapping(
     SECURE_AUTHENTICATION=0x01,
@@ -239,8 +224,7 @@ AUTHENTICATION_TYPES = FlagsMapping(
     USE_SEALING=0x80,
     USE_DELEGATION=0x100,
     SERVER_BIND=0x200,
-    AUTH_RESERVED=0x80000000,
-)
+    AUTH_RESERVED=0x80000000)
 
 SAM_ACCOUNT_TYPES = UnsignedIntegerMapping(
     SAM_DOMAIN_OBJECT=0x0,
@@ -254,8 +238,7 @@ SAM_ACCOUNT_TYPES = UnsignedIntegerMapping(
     SAM_TRUST_ACCOUNT=0x30000002,
     SAM_APP_BASIC_GROUP=0x40000000,
     SAM_APP_QUERY_GROUP=0x40000001,
-    SAM_ACCOUNT_TYPE_MAX=0x7fffffff,
-)
+    SAM_ACCOUNT_TYPE_MAX=0x7fffffff)
 
 USER_ACCOUNT_CONTROL = FlagsMapping(
     ADS_UF_SCRIPT=0x00000001,
@@ -278,166 +261,301 @@ USER_ACCOUNT_CONTROL = FlagsMapping(
     ADS_UF_USE_DES_KEY_ONLY=0x00200000,
     ADS_UF_DONT_REQUIRE_PREAUTH=0x00400000,
     ADS_UF_PASSWORD_EXPIRED=0x00800000,
-    ADS_UF_TRUSTED_TO_AUTHENTICATE_FOR_DELEGATION=0x01000000,
-)
+    ADS_UF_TRUSTED_TO_AUTHENTICATE_FOR_DELEGATION=0x01000000)
 
 
-class ADORecord():
+class RecordSet():
 
-    """Simple wrapper around an ADO result set"""
+    """Simple wrapper around an ADO Recordset, see
+    <https://docs.microsoft.com/windows/win32/adsi
+     /searching-with-activex-data-objects-ado>
+    """
+
+    search_properties = dict(
+        Asynchronous=True,
+        Timeout=1)
 
     def __init__(self, record):
         """Store the fields of the record by name"""
-        #self.record = record
-        self.fields = {}
+        self.__fields = {}
         for field_number in range(record.Fields.Count):
             field = record.Fields.Item(field_number)
-            self.fields[field.Name] = field.Value
+            self.__fields[field.Name] = field.Value
         #
 
     def __getattr__(self, name):
-        """Allow access to field names by name
-        rather than by Item(...)
-        """
+        """Allow access to fields via attributes"""
         try:
-            return self.fields[name]
-        except KeyError:
-            raise AttributeError from KeyError
+            return self.__fields[name]
+        except KeyError as error:
+            raise AttributeError(
+                '%r object has no attribute %r' % (
+                    self.__class__.__name__, name)) from error
         #
 
     def dump_fields(self):
-        """Yield all field names and values"""
-        for name, item in self.fields.items():
-            yield '%s=%r' % (name, item)
+        """Yield all field names and values as tuples"""
+        for name, item in self.__fields.items():
+            yield (name, item)
         #
-
-    def __str__(self):
-        """Return a readable presentation of the entire record"""
-        output = ['{']
-        output.extend('  %s' % field for field in self.dump_fields())
-        output.append('}')
-        return '\n'.join(output)
 
     def __repr__(self):
         """Return a readable presentation of the entire record"""
-        output = ['<%s: ' % self.__class__.__name__]
-        output.append(', '.join(self.dump_fields()))
-        output.append('>')
-        return ''.join(output)
+        return '<%s: %s>' % (
+            self.__class__.__name__,
+            ', '.join('%s=%r' % field for field in self.dump_fields()))
+
+    def __str__(self):
+        """Return a presentation of the entire record
+        suitable for output
+        """
+        return '{\n%s\n}' % (
+            ', '.join('  %s=%r' % field for field in self.dump_fields()))
 
     @classmethod
     def query(cls, query_string, **kwargs):
-        """Yield ADORecord objects from each result of an ADO query"""
-        command = win32com.client.Dispatch("ADODB.Command")
+        """Yield RecordSet objects from each result of an ADO query.
+        ADO command properties may be specified as keyword arguments.
+        Underscores in the keywords are replaced by spaces.
+        """
+        command = win32com.client.Dispatch(ADO_COMMAND)
         command.ActiveConnection = connection()
         #
-        # Add additional ADO command properties
-        # specified as keyword arguments.
-        # NB underscores in the keyword are replaced by spaces.
-        #
-        # Examples:
-        #   Cache_results=False => Don't cache large result sets
-        #   Page_size=500 => Return batches of this size
-        #   Time_Limit=30 => How many seconds should the search continue
-        for key, value in kwargs.items():
+        search_properties = dict(cls.search_properties)
+        search_properties.update(kwargs)
+        for key, value in search_properties.items():
             command.Properties(key.replace('_', ' ')).Value = value
         #
         command.CommandText = query_string
-        recordset = command.Execute()[0]
-        while not recordset.EOF:
-            yield cls(recordset)
-            recordset.MoveNext()
+        # pylint: disable=no-member ; false positive for com_error
+        try:
+            result_set = command.Execute()[0]
+        except win32com.client.pywintypes.com_error as error:
+            raise ValueError(
+                '%r\n\nPossibly faulty query string:\n%s' % (
+                    error, query_string)) from error
+        #
+        # pylint: enable
+        while not result_set.EOF:
+            yield cls(result_set)
+            result_set.MoveNext()
         #
 
 
-class DistinguishedName():
+class PathComponent:
 
-    """Simple access to the parts of a distinguished name,
-    instantiated using either an ActiveDirectoryObject
-    or a string.
-    """
+    """Component of an LDAP path"""
 
-    prx_comma = re.compile(r'(?<!\\),')
     prx_equals = re.compile(r'(?<!\\)=')
 
-    def __init__(self, object_or_dn):
-        """Keep a dict of name parts"""
-        try:
-            distinguished_name = object_or_dn.distinguishedName
-        except AttributeError:
-            if not isinstance(object_or_dn, str):
-                raise ValueError(
-                    '%s must be instantiated using an ActiveDirectoryObject'
-                    ' or a string.' % self.__class__.__name__)
-            #
-            distinguished_name = object_or_dn
-        #
-        self.__components = {}
-        for name_part in self.prx_comma.split(distinguished_name):
-            try:
-                key, value = self.prx_equals.split(name_part)
-            except ValueError as error:
-                raise ValueError(
-                    'Not a valid DN: %s' & distinguished_name) from error
-            #
-            key = key.strip().lower()
-            self.__components.setdefault(key, []).append(value)
+    def __init__(self, **kwargs):
+        """Initialize from the first given keyword"""
+        for (keyword, value) in kwargs.items():
+            self.__keyword = keyword.lower()
+            self.__value = value
+            break
+        else:
+            raise ValueError('No arguments provided!')
         #
 
     @property
-    def common_name(self):
-        """Return the first (!) cn attribute only"""
-        return self.cn[0]
+    def keyword(self):
+        """Return the keyword"""
+        return self.__keyword
 
-    def all_parts(self):
-        """Yield all parts"""
-        for (key, values) in self.__components.items():
-            for single_value in values:
-                yield '%s=%s' % (key, single_value)
+    @property
+    def value(self):
+        """Return the keyword"""
+        return self.__value
+
+    def __repr__(self):
+        """Return a string representation"""
+        return '<%s: %s>' % (self.__class__.__name__, str(self))
+
+    def __str__(self):
+        """Return a normalized string representation"""
+        return '%s=%s' % (self.__keyword, self.__value)
+
+    @classmethod
+    def from_string(cls, string):
+        """Construct a PathComponent from the given string"""
+        try:
+            kwargs = dict([cls.prx_equals.split(string)])
+        except ValueError as error:
+            raise ValueError(
+                '%r is not a valid path component!' % string) from error
+        #
+        return cls(**kwargs)
+
+
+class LdapPath:
+
+    """Simple access to the parts of an LDAP path
+    (distinguished name)
+    """
+
+    ldap_url_prefix = 'LDAP://'
+    prx_comma = re.compile(r'(?<!\\),')
+
+    def __init__(self, *parts):
+        """Keep a tuple of components"""
+        components = []
+        for single_part in parts:
+            if not isinstance(single_part, PathComponent):
+                single_part = PathComponent.from_string(single_part)
             #
+            components.append(single_part)
+        #
+        self.__components = tuple(components)
+
+    @property
+    def components(self):
+        """Return the componets tuple"""
+        return self.__components
+
+    @property
+    def rdn(self):
+        """Return the relative distinguished name
+        (i.e. value of the first part)
+        """
+        return self[0].value
+
+    @property
+    def url(self):
+        """Return an LDAP URL from the path"""
+        return '%s%s' % (self.ldap_url_prefix, str(self))
+
+    @classmethod
+    def from_string(cls, string):
+        """Construct an LdapPath from the given string"""
+        if string.upper().startswith(cls.ldap_url_prefix):
+            string = string[len(cls.ldap_url_prefix):]
+        #
+        try:
+            return cls(*cls.prx_comma.split(string))
+        except ValueError as error:
+            raise ValueError(
+                '%r is not a valid LDAP path!' % string) from error
         #
 
     def __getitem__(self, key):
-        """Return the values for the given key"""
+        """Return the hash over the distinguished name"""
         return self.__components[key]
-
-    def __getattr__(self, key):
-        """Return the values for the given key (case insensitive)"""
-        try:
-            return self[key.lower()]
-        except KeyError:
-            raise AttributeError('No %r in %r' % (key, self))
-        #
-
-    def __str__(self):
-        """Return the distinguished name"""
-        return ','.join(self.all_parts())
 
     def __hash__(self):
         """Return a hash over the distinguished name"""
         return hash(str(self))
 
+    def __iter__(self):
+        """Return an iterator over the components"""
+        return iter(self.__components)
+
+    def __len__(self):
+        """Return the number of components"""
+        return len(self.__components)
+
     def __repr__(self):
         """Return the distinguished name prefixed with the
         class name
         """
-        return '%s: %s' % (self.__class__.__name__, self)
+        return '<%s: %s>' % (self.__class__.__name__, str(self))
+
+    def __str__(self):
+        """Return the distinguished name"""
+        return ','.join(str(part) for part in self.__components)
 
 
-#
-# Active Directory objects
-#
+class SearchFilter:
+
+    """Simple object holding search parameters"""
+
+    def __init__(self, primary_key_name, **fixed_parameters):
+        """Store primary key name and fixed parameters"""
+        self.__primary_key_name = primary_key_name
+        self.__fixed_parameters = fixed_parameters
+
+    def where_clause(self, *args, **kwargs):
+        """Build a WHERE clause for an
+        LDAP query SQL statement (if necessary)
+        """
+        kwargs.update(self.__fixed_parameters)
+        primary_key_value = kwargs.pop('_primary_key_', None)
+        if primary_key_value and self.__primary_key_name:
+            kwargs[self.__primary_key_name] = primary_key_value
+        #
+        where_clauses = list(args) + [
+            '%s=%r' % (key, str(value))
+            for (key, value) in kwargs.items()]
+        if where_clauses:
+            return 'WHERE %s' % ' AND '.join(where_clauses)
+        #
+        return ''
+
+    def execute_query(self, ldap_path, *args, **kwargs):
+        """Build an SQL statement and execute a query
+        from the provided LDAP path.
+        Yield RecordSet objects.
+        """
+        sql_statement = '\n'.join([
+            'SELECT ADsPath, userAccountControl',
+            'FROM %r' % ldap_path.url,
+            self.where_clause(*args, **kwargs)])
+        for result in RecordSet.query(sql_statement):
+            yield result
+        #
+
+    def __repr__(self):
+        """Return a string representation"""
+        return '<%s using %s, with fixed value(s) %s>' % (
+            self.__class__.__name__,
+            self.__primary_key_name,
+            ', '.join(
+                '%s=%r' % item for item in self.__fixed_parameters.items()))
 
 
-class ActiveDirectoryCbject():
+SEARCH_FILTERS = {
+    'computer': SearchFilter(
+        'cn',
+        objectCategory='Computer'),
+    'group': SearchFilter(
+        'cn',
+        objectCategory='group'),
+    'ou': SearchFilter(
+        'ou',
+        objectClass='organizationalUnit'),
+    'public_folder': SearchFilter(
+        'displayName',
+        objectClass='publicFolder'),
+    'userid': SearchFilter(
+        'sAMAccountName',
+        objectCategory='Person',
+        objectClass='User')}
 
-    """Wrap an active directory object for easier access
+
+def determine_search_filter(**kwargs):
+    """Return a tuple containing the search filter
+    and the kwargs dict prepared for the search
+    Determine its type by keyword, and fall back to generic search
+    if none of the defined keywords were used.
+    """
+    for (keyword, search_filter) in SEARCH_FILTERS.items():
+        try:
+            value = kwargs.pop(keyword)
+        except KeyError:
+            continue
+        #
+        kwargs['_primary_key_'] = value
+        return (search_filter, kwargs)
+    #
+    return (SearchFilter(None), kwargs)
+
+
+class LdapEntry:
+
+    """Wrap an LDAP entry for easier access
     to its properties and children. May be instantiated
-    either directly from a COM object or from an ADs Path, eg:
-
-    import active_directory
-    users = active_directory.ad_object_factory(
-        "LDAP://cn=Users,DC=gb,DC=vo,DC=local")
+    Preferably instantiated via the produce_entry()
+    factory function.
     """
 
     additional_conversions = ()
@@ -450,71 +568,93 @@ class ActiveDirectoryCbject():
         """
         schema = win32com.client.GetObject(com_object.Schema)
         self.com_object = com_object
-        self.properties = \
-            schema.MandatoryProperties + schema.OptionalProperties
-        self.is_container = schema.Container
-        self._property_map = dict(
+        self.__property_names = tuple(
+            schema.MandatoryProperties + schema.OptionalProperties)
+        # self.__is_container = schema.Container
+        self.__conversions = dict(
             objectGUID=convert_to_guid,
             uSNChanged=convert_to_datetime,
             uSNCreated=convert_to_datetime,
             replicationSignature=convert_to_hex)
-        self._property_map.update(self.additional_conversions)
-        self._delegate_map = dict()
+        self.__conversions.update(self.additional_conversions)
+        self.__property_cache = dict()
 
-    def __getitem__(self, key):
-        """Item access (here: read) delegated to attribute access"""
-        return getattr(self, key)
+    @property
+    def parent(self):
+        """Return this object's parent LDAP entry"""
+        return produce_entry(from_path=self.com_object.Parent)
 
-    def __getattr__(self, name):
-        """Allow access to the com object's properties as through
-        normal Python instance properties.
-        Some properties are accessed directly through the object,
-        others by calling its Get method. Not clear why.
-        """
+    @property
+    def path(self):
+        """Return the COM object's ADsPath"""
+        return LdapPath.from_string(self.com_object.ADsPath)
+
+    @property
+    def property_names(self):
+        """Return all available property names"""
+        return self.__property_names
+
+    def __getitem__(self, name):
+        """Cached read access to the com object's properties"""
         try:
-            return self._delegate_map[name]
+            return self.__property_cache[name]
         except KeyError:
             pass
         #
-        try:
-            attr = getattr(self.com_object, name)
-        except AttributeError:
-            try:
-                attr = self.com_object.Get(name)
-            except:
-                raise AttributeError
+        if name not in self.__property_names:
+            # Try to find the exact case of the property
+            # according to the property names
+            # or already cached properties
+            lowercase_name = name.lower()
+            for existing_name in self.__property_names:
+                if existing_name.lower() == lowercase_name:
+                    name = existing_name
+                    break
+                #
+            else:
+                for cached_name in self.__property_cache:
+                    if cached_name.lower() == lowercase_name:
+                        return self.__property_cache[cached_name]
+                    #
+                #
+            #
         #
         try:
-            converter = self._property_map[name]
-        except KeyError:
-            return self._delegate_map.setdefault(name, attr)
+            com_property = getattr(self.com_object, name)
+        except AttributeError as error:
+            raise KeyError(name) from error
         #
-        return self._delegate_map.setdefault(name, converter(attr))
+        if com_property is None:
+            # Do not cache properties having value None
+            return com_property
+        #
+        converter = self.__conversions.get(name)
+        if converter:
+            com_property = converter(com_property)
+        #
+        return self.__property_cache.setdefault(name, com_property)
 
-    def __setitem__(self, key, value):
-        """Item access (here: write) delegated to attribute access"""
-        setattr(self, key, value)
-
-    def __setattr__(self, name, value):
-        """Allow attribute access to the underlying object's
-        fields.
+    def __getattr__(self, name):
+        """Instance attribute access to the com object's properties
+        via item access
         """
-        if name in self.__dict__.get('properties', ()):
-            self.com_object.Put(name, value)
-            self.com_object.SetInfo()
-        else:
-            object.__setattr__(self, name, value)
+        try:
+            return self[name]
+        except KeyError as error:
+            raise AttributeError(
+                '%r object has no attribute %r' % (
+                    self.__class__.__name__, name)) from error
         #
 
     def __str__(self):
         """Return the path"""
-        return self.path()
+        return str(self.path)
 
     def __repr__(self):
         """Return a representation with the class name
         and the path
         """
-        return "<%s: %s>" % (self.__class__.__name__, self.path())
+        return "<%s: %s>" % (self.__class__.__name__, str(self.path))
 
     def __eq__(self, other):
         """Compare the COM objects' GUIDs"""
@@ -526,175 +666,87 @@ class ActiveDirectoryCbject():
 
     def __iter__(self):
         """Iterate over the com_object's contained objects
-        and yield an ActiteveDirectoryObject for each one
+        and yield an LdapEntry for each one
         """
-        for item in self.com_object:
-            yield CachedObject.from_object(item)
+        for contained_object in self.com_object:
+            yield produce_entry(from_object=contained_object)
         #
 
-    def iterdump(self):
-        """Yield all lines of a representation of self
-        (i.e. all non-empty properties)
-        """
-        for name in self.properties:
+    def dump_items(self):
+        """Yield all properties as (name, value) tuples"""
+        for name in sorted(
+                set(self.__property_names) | set(self.__property_cache),
+                key=str.lower):
             try:
-                value = getattr(self, name)
-            except AttributeError:
-                yield '%s <not defined>' % name
+                yield (name, self[name])
+            except KeyError:
                 continue
             #
-            if value:
-                yield '%s => %r' % (name, value)
-            #
         #
 
-    def dump(self):
+    def print_dump(self):
         """Print a representation of self"""
-        print('%s:\n{' % self)
-        for line in self.iterdump():
-            print('  %s' % line)
+        print('%r\n{' % self)
+        for (name, value) in self.dump_items():
+            if value:
+                print('  %s \u2192 %r' % (name, value))
+            #
         #
         print('}')
 
-    def path(self):
-        """Return the COM object's ADsPath"""
-        return self.com_object.ADsPath
-
-    def parent(self):
-        """Find this object's parent"""
-        return CachedObject.from_path(self.com_object.Parent)
-
     def child(self, relative_path):
-        """Return the relative child of this object. The relative_path
-        is inserted into this object's AD path to make a coherent AD
-        path for a child object, eg:
+        """Return the relative child of this entry. The relative_path
+        is inserted into this entry's AD path to make a coherent AD
+        path for a child entry, eg:
 
         import active_directory
         root = active_directory.root()
-        users = root.child("cn=Users")
+        users = root.child('cn=Users')
         """
-        return CachedObject.from_path(
-            _add_path(self.path(), relative_path))
+        return produce_entry(from_path=LdapPath(relative_path, *self.path))
 
-    def find_first(self, *args, **kwargs):
-        """Return the first item found by self.search"""
-        for found_path in self.search(*args, **kwargs):
-            return CachedObject.from_path(found_path)
-        #
-
-    def find_group(self, name=None, **kwargs):
-        """Find a group by name or other properties"""
-        if name:
-            kwargs['cn'] = name
-        #
-        kwargs.update(dict(objectCategory='group'))
-        return self.find_first(**kwargs)
-
-    def find_user(self, name=None, **kwargs):
-        """Find a user by name or other properties"""
-        find_args = []
-        if name:
-            find_args.append(
-                ' OR '.join(
-                    "%s='%s'" % (field_name, name)
-                    for field_name in self.user_search_fields))
-        #
-        kwargs.update(
-            dict(objectCategory='Person',
-                 objectClass='User'))
-        return self.find_first(*find_args, **kwargs)
-
-    def find_computer(self, name):
-        """Find a computer by name"""
-        return self.find_first(objectCategory='Computer', cn=name)
-
-    def find_ou(self, name):
-        """Find an OU by name"""
-        return self.find_first(objectClass="organizationalUnit", ou=name)
-
-    def find_public_folder(self, name):
-        """Find a public folder by name"""
-        return self.find_first(objectClass="publicFolder", displayName=name)
-
-    def __search_with_state(self, *args, **kwargs):
-        """Build an SQL statement and execute a query with it.
-        Yield AD result objects.
+    def find(self, *args, **kwargs):
+        """Return an LdapEntry for the first matching
+        search result.
         """
-        sql_statement = [
-            "SELECT ADsPath, userAccountControl",
-            "FROM '%s'" % self.path()]
-        where_clauses = list(args) + [
-            "%s='%s'" % (key, value) for (key, value) in kwargs.items()]
-        if where_clauses:
-            sql_statement.append("WHERE %s" % " AND ".join(where_clauses))
+        search_filter, kwargs = determine_search_filter(**kwargs)
+        for found_path in self.search(search_filter, *args, **kwargs):
+            return produce_entry(from_path=found_path)
         #
-        for result in ADORecord.query("\n".join(sql_statement), Page_size=50):
-            yield result
-        #
+        return None
 
-    def search(self, *args, **kwargs):
-        """Yield paths for all found objects"""
-        for result in self.__search_with_state(*args, **kwargs):
-            yield result.ADsPath
-        #
+    def search(self, search_filter, *args, active=None, **kwargs):
+        """Yield LDAP paths (plain strings) for all found Entries.
 
-    def search_active(self, *args, **kwargs):
-        """Yield paths for all active objects"""
-        for result in self.__search_with_state(*args, **kwargs):
-            if not (result.userAccountControl
-                    & USER_ACCOUNT_CONTROL['ADS_UF_ACCOUNTDISABLE']):
+        If 'active' is set to True or False explicitly,
+        yield the path only if the userAccountControl
+        property value matches the desired state.
+        """
+        if active is None:
+            for result in search_filter.execute_query(
+                    self.path, *args, **kwargs):
                 yield result.ADsPath
             #
+            return
         #
-
-    def search_inactive(self, *args, **kwargs):
-        """Yield paths for all inactive objects"""
-        for result in self.__search_with_state(*args, **kwargs):
-            if (
-                    result.userAccountControl
-                    & USER_ACCOUNT_CONTROL['ADS_UF_ACCOUNTDISABLE']):
+        bitmask = USER_ACCOUNT_CONTROL['ADS_UF_ACCOUNTDISABLE']
+        selected_state = bitmask
+        if active:
+            selected_state = 0
+        #
+        for result in search_filter.execute_query(self.path, *args, **kwargs):
+            try:
+                if result.userAccountControl & bitmask == selected_state:
+                    yield result.ADsPath
+                #
+            except TypeError:
+                # no userAccountControl property
                 yield result.ADsPath
             #
         #
 
 
-class Group(ActiveDirectoryCbject):
-
-    """Active Directory group"""
-
-    additional_conversions = dict(
-        groupType=GROUP_TYPES.get_flag_names,
-        objectSid=convert_to_sid,
-        sAMAccountType=SAM_ACCOUNT_TYPES.get)
-
-    def walk(self):
-        """Yield a tuple of
-        (self, subgroups, users) and repeat that recursively
-        for each subgroup.
-        """
-        members = self.member or []
-        if isinstance(members, str):
-            members = [members]
-        #
-        groups = []
-        users = []
-        for single_path in members:
-            single_member = CachedObject.from_path(single_path)
-            if single_member.Class == 'group':
-                groups.append(single_member)
-            elif single_member.Class == 'user':
-                users.append(single_member)
-            #
-        #
-        yield (self, groups, users)
-        for child_group in groups:
-            for result in child_group.walk():
-                yield result
-            #
-        #
-
-
-class User(ActiveDirectoryCbject):
+class User(LdapEntry):
 
     """Active Directory user with an additional bool property
     (account_disabled)
@@ -710,7 +762,7 @@ class User(ActiveDirectoryCbject):
         lastLogonTimestamp=convert_to_datetime,
         lockoutTime=convert_to_datetime,
         msExchMailboxGuid=convert_to_guid,
-        sAMAccountType=SAM_ACCOUNT_TYPES.get,
+        sAMAccountType=SAM_ACCOUNT_TYPES.get_name,
         userAccountControl=USER_ACCOUNT_CONTROL.get_flag_names)
 
     @property
@@ -719,7 +771,42 @@ class User(ActiveDirectoryCbject):
         return 'ADS_UF_ACCOUNTDISABLE' in self.userAccountControl
 
 
-class Computer(ActiveDirectoryCbject):
+class Group(LdapEntry):
+
+    """Active Directory group"""
+
+    additional_conversions = dict(
+        groupType=GROUP_TYPES.get_flag_names,
+        objectSid=convert_to_sid,
+        sAMAccountType=SAM_ACCOUNT_TYPES.get_name)
+
+    def walk(self):
+        """Yield a tuple of (self, subgroups_list, users_list)
+        and repeat that (recursively) for each subgroup.
+        """
+        member_paths = self.member or []
+        if isinstance(member_paths, str):
+            member_paths = [member_paths]
+        #
+        groups_list = []
+        users_list = []
+        for single_path in member_paths:
+            child_entry = produce_entry(from_path=single_path)
+            if isinstance(child_entry, self.__class__):
+                groups_list.append(child_entry)
+            elif isinstance(child_entry, User):
+                users_list.append(child_entry)
+            #
+        #
+        yield (self, groups_list, users_list)
+        for child_group in groups_list:
+            for result in child_group.walk():
+                yield result
+            #
+        #
+
+
+class Computer(LdapEntry):
 
     """Active Directory computer"""
 
@@ -731,18 +818,41 @@ class Computer(ActiveDirectoryCbject):
         lastLogon=convert_to_datetime,
         lastLogonTimestamp=convert_to_datetime,
         pwdLastSet=convert_to_datetime,
-        sAMAccountType=SAM_ACCOUNT_TYPES.get,
+        sAMAccountType=SAM_ACCOUNT_TYPES.get_name,
         userAccountControl=USER_ACCOUNT_CONTROL.get_flag_names)
 
 
-class OrganisationalUnit(ActiveDirectoryCbject):
+class OrganisationalUnit(LdapEntry):
 
-    """Active Directory OU"""
+    """Active Directory Organisational unit"""
 
-    pass
+    def find_user(self, *args, **kwargs):
+        """Return a User object for the first matching
+        search result.
+        """
+        args_list = list(args)
+        try:
+            name = args_list.pop(0)
+        except IndexError:
+            pass
+        else:
+            user_search = []
+            for field_name in self.user_search_fields:
+                if field_name not in kwargs:
+                    user_search.append('%s=%r' % (field_name, str(name)))
+                #
+            #
+            if user_search:
+                args_list = [' OR '.join(user_search)] + args_list
+            #
+        #
+        for found_path in self.search(
+                SEARCH_FILTERS['userid'], *args_list, **kwargs):
+            return produce_entry(from_path=found_path)
+        #
 
 
-class DomainDNS(ActiveDirectoryCbject):
+class DomainDNS(OrganisationalUnit):
 
     """Active Directory Domain DNS"""
 
@@ -759,76 +869,23 @@ class DomainDNS(ActiveDirectoryCbject):
         'objectSid': convert_to_sid,
         'replUpToDateVector': convert_to_hex,
         'repsFrom': convert_to_hex,
-        'repsTo': convert_to_hex,
-    }
+        'repsTo': convert_to_hex}
 
 
-class PublicFolder(ActiveDirectoryCbject):
+class PublicFolder(LdapEntry):
 
     """Active Directory public folder"""
 
     pass
 
 
-class CachedObject():
-
-    """ActiveDirectoryObject factory and cache
-
-    The from_path() and from_object() methods
-    cache and return an instance of ActiveDirectoryCbject
-    or one of its subclasses.
-    """
-
-    class_map = {
-        "user" : User,
-        "computer" : Computer,
-        "group" : Group,
-        "organizationalUnit" : OrganisationalUnit,
-        "domainDNS" : DomainDNS,
-        "publicFolder" : PublicFolder,
-    }
-    _cache = {}
-
-    @classmethod
-    def _register_object(cls, path, com_object):
-        """Cache and return a new Active Directory Object"""
-        ado_class = cls.class_map.get(com_object.Class, ActiveDirectoryCbject)
-        try:
-            cls._cache[path] = ado_class(com_object)
-        except Exception as error:
-            raise ValueError(
-                "Problem with object %s: %s" % (com_object, error)) from error
-        #
-        return cls._cache[path]
-
-    @classmethod
-    def from_path(cls, path, prefer_cached=True):
-        """Return the cached object or register a new one,
-        based on the path
-        """
-        path = ldap_url(path)
-        if prefer_cached and path in cls._cache:
-            return cls._cache[path]
-        #
-        try:
-            com_object = win32com.client.GetObject(path)
-        except Exception as error:
-            raise ValueError(
-                "Problem with path %s: %s" % (path, error)) from error
-            #
-        #
-        return cls._register_object(path, com_object)
-
-    @classmethod
-    def from_object(cls, com_object, prefer_cached=True):
-        """Return the cached object or register a new one,
-        based on the COM object
-        """
-        path = com_object.ADsPath
-        if prefer_cached and path in cls._cache:
-            return cls._cache[path]
-        #
-        return cls._register_object(path, com_object)
+ENTRY_CLASSES = {
+    "user" : User,
+    "computer" : Computer,
+    "group" : Group,
+    "organizationalUnit" : OrganisationalUnit,
+    "domainDNS" : DomainDNS,
+    "publicFolder" : PublicFolder}
 
 
 #
@@ -836,80 +893,105 @@ class CachedObject():
 #
 
 
+def produce_entry(from_path=None, from_object=None, lazy=True):
+    """Produce an LdapEntry or subclass instance
+    for either the given LDAP path or COM object.
+    Determine the parameter that was not provided automatically.
+    If lazy is not set to False explicitly,
+    the entry associated with the provided or determined
+    LDAP path is returned from the global cache if it exists.
+    """
+    if from_path:
+        if from_object is not None:
+            raise ValueError('Specify either a path or a COM object')
+        #
+        if isinstance(from_path, LdapPath):
+            ldap_path = from_path
+        else:
+            ldap_path = LdapPath.from_string(from_path)
+        #
+    else:
+        com_object = from_object
+        try:
+            ldap_path = LdapPath.from_string(com_object.ADsPath)
+        except AttributeError as error:
+            raise ValueError(
+                'Specify either a path or a COM object') from error
+        #
+    #
+    if lazy and ldap_path in GLOBAL_CACHE:
+        return GLOBAL_CACHE[ldap_path]
+    #
+    if from_object is None:
+        try:
+            com_object = win32com.client.GetObject(ldap_path.url)
+        except Exception as error:
+            raise ValueError(
+                'Problem with path %s: %s' % (ldap_path, error)) from error
+            #
+        #
+    #
+    ldap_entry_class = ENTRY_CLASSES.get(com_object.Class, LdapEntry)
+    try:
+        GLOBAL_CACHE[ldap_path] = ldap_entry_class(com_object)
+    except Exception as error:
+        raise ValueError(
+            'Problem with object %s: %s' % (com_object, error)) from error
+    #
+    return GLOBAL_CACHE[ldap_path]
+
+
 def root(server=None):
-    """Return a cached object referring to the
+    """Return a cached entry referring to the
     root of the logged-on active directory tree.
     """
     try:
-        return _CACHE['directory']
+        return GLOBAL_CACHE[CACHE_KEY_ROOT]
     except KeyError:
         root_dse_path = 'rootDSE'
         if server:
             root_dse_path = '%s/%s' % (server, root_dse_path)
         #
-        ldap_root = win32com.client.GetObject(ldap_url(root_dse_path))
+        ldap_root = win32com.client.GetObject(
+            '%s%s' % (LdapPath.ldap_url_prefix, root_dse_path))
         default_naming_context = ldap_root.Get("defaultNamingContext")
-        return _CACHE.setdefault(
-            'directory',
-            CachedObject.from_path(ldap_url(default_naming_context)))
+        return GLOBAL_CACHE.setdefault(
+            CACHE_KEY_ROOT,
+            produce_entry(
+                from_path=LdapPath.from_string(default_naming_context)))
     #
 
 
-def find(**kwargs):
-    """Find a computer, ou, or public folder by name
-    from the cached root object.
+def find(*args, **kwargs):
+    """Find an LDAP entry.
     Determine the type by the keyword argument.
-    Find a user using the keywords if no other object type
+    Find a user using the keywords if no other entry type
     could be determined.
     """
-    root_object = root()
-    for keyword in ('computer', 'ou', 'public_folder'):
-        try:
-            name = kwargs.pop(keyword)
-        except KeyError:
-            continue
-        #
-        find_method = getattr(root_object, 'find_%s' % keyword)
-        return find_method(name)
-    #
-    return root_object.find_user(**kwargs)
+    return root().find(*args, **kwargs)
 
 
-def find_group(name=None, **kwargs):
-    """Find a group by name or other properties
-    from the cached root object
-    """
-    return root().find_group(name=name, **kwargs)
-
-
-def find_user(name=None, **kwargs):
+def find_user(*args, **kwargs):
     """Find a user by name or other properties
-    from the cached root object
+    from the cached root entry
     """
-    return root().find_user(name=name, **kwargs)
+    return root().find_user(*args, **kwargs)
 
 
 def search(*args, **kwargs):
-    """Search from the cached root object"""
-    return root().search(*args, **kwargs)
+    """Search from the cached root entry"""
+    search_filter, kwargs = determine_search_filter(**kwargs)
+    return root().search(search_filter, *args, **kwargs)
 
 
 def search_explicit(query_string):
     """Search the Active Directory by specifying an explicit
     query string.
 
-    NB The results will *not* be ActiveDirectoryObjects
-    but rather ADO_objects which are queried for their fields, eg:
-
-    import active_directory
-    query_string = \"""SELECT displayName
-    FROM 'LDAP://DC=gb,DC=vo,DC=local'
-    WHERE objectCategory = 'Person'
-    \"""
-    for user in active_directory.search_ex(query_string):
-        print user.displayName
+    The results will *not* be LDAP paths but RecordSet instances,
+    the fields of which can be accessed as attributes.
     """
-    for result in ADORecord.query(query_string, Page_size=50):
+    for result in RecordSet.query(query_string):
         yield result
     #
 
