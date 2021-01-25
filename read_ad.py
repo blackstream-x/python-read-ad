@@ -2,10 +2,10 @@
 
 """
 
-com_ad
+read_ad
 
 A lightweight wrapper around COM support
-for Active Directory read access.
+for Active Directory readonly access.
 
 Based on original version 0.6.7 by Tim Golden
 (see <http://timgolden.me.uk/python/active_directory.html>)
@@ -13,7 +13,7 @@ with a few cherry-picks from the current implementation
 (<https://github.com/tjguk/active_directory/blob/master/active_directory.py>)
 
 Rewrite for Python3 with minimized dependencies
-by Rainer Schwarzbach, 2021-01-22
+by Rainer Schwarzbach, 2021-01-25
 
 License: MIT
 
@@ -21,6 +21,7 @@ License: MIT
 
 
 import datetime
+import logging
 import re
 import struct
 
@@ -558,7 +559,9 @@ class LdapEntry:
     factory function.
     """
 
-    additional_conversions = ()
+    additional_conversions = {}
+    additional_ignores = set()
+    additional_properties = set()
     user_search_fields = ('sAMAccountName', 'displayName', 'cn')
 
     def __init__(self, com_object):
@@ -566,73 +569,83 @@ class LdapEntry:
         __setattr__ & __getattr__ will fall over
         each other if you aren't.
         """
+        ignore_properties = {
+            'nTSecurityDescriptor'} | self.additional_ignores
+        add_properties = {
+            'GUID', 'ADsPath', 'Parent'} | self.additional_properties
         schema = win32com.client.GetObject(com_object.Schema)
-        self.com_object = com_object
-        self.__property_names = tuple(
-            schema.MandatoryProperties + schema.OptionalProperties)
-        # self.__is_container = schema.Container
-        self.__conversions = dict(
+        property_names = tuple(
+            single_property for single_property in
+            set(schema.MandatoryProperties)
+            | set(schema.OptionalProperties)
+            | add_properties
+            if single_property not in ignore_properties)
+        conversions = dict(
             objectGUID=convert_to_guid,
             uSNChanged=convert_to_datetime,
             uSNCreated=convert_to_datetime,
             replicationSignature=convert_to_hex)
-        self.__conversions.update(self.additional_conversions)
+        conversions.update(self.additional_conversions)
+        self.__case_translation = dict()
         self.__property_cache = dict()
+        self.__empty_properties = set()
+        for name in property_names:
+            try:
+                com_property = getattr(com_object, name)
+            except AttributeError:
+                logging.warning('Property %r not found', name)
+                continue
+            #
+            self.__case_translation[name.lower()] = name
+            if com_property is None:
+                self.__empty_properties.add(name)
+                continue
+            #
+            try:
+                com_property = conversions[name](com_property)
+            except KeyError:
+                pass
+            #
+            self.__add_property(name, com_property)
+        #
 
     @property
     def parent(self):
         """Return this object's parent LDAP entry"""
-        return produce_entry(from_path=self.com_object.Parent)
+        return produce_entry(from_path=self['Parent'])
 
     @property
     def path(self):
         """Return the COM object's ADsPath"""
-        return LdapPath.from_string(self.com_object.ADsPath)
+        return LdapPath.from_string(self['ADsPath'])
 
-    @property
-    def property_names(self):
-        """Return all available property names"""
-        return self.__property_names
-
-    def __getitem__(self, name):
-        """Cached read access to the com object's properties"""
-        try:
-            return self.__property_cache[name]
-        except KeyError:
-            pass
-        #
-        if name not in self.__property_names:
-            # Try to find the exact case of the property
-            # according to the property names
-            # or already cached properties
-            lowercase_name = name.lower()
-            for existing_name in self.__property_names:
-                if existing_name.lower() == lowercase_name:
-                    name = existing_name
-                    break
-                #
-            else:
-                for cached_name in self.__property_cache:
-                    if cached_name.lower() == lowercase_name:
-                        return self.__property_cache[cached_name]
-                    #
-                #
+    def __add_property(self, name, value):
+        """Add a property value only if it is not a
+        COM_Object or a memoryview (or a collection of those)
+        """
+        if isinstance(value, (list, tuple)):
+            if value and isinstance(
+                    value[0], (memoryview, win32com.client.CDispatch)):
+                return
             #
         #
+        if not isinstance(value, (memoryview, win32com.client.CDispatch)):
+            self.__property_cache[name] = value
+        #
+
+    def __getitem__(self, name):
+        """Access the properties as dict members,
+        using case-insensitive names
+        """
+        translated_name = self.__case_translation[name.lower()]
         try:
-            com_property = getattr(self.com_object, name)
-        except AttributeError as error:
-            raise KeyError(name) from error
+            return self.__property_cache[translated_name]
+        except KeyError:
+            if translated_name in self.__empty_properties:
+                return None
+            #
         #
-        if com_property is None:
-            # Do not cache properties having value None
-            return com_property
-        #
-        converter = self.__conversions.get(name)
-        if converter:
-            com_property = converter(com_property)
-        #
-        return self.__property_cache.setdefault(name, com_property)
+        raise KeyError(name)
 
     def __getattr__(self, name):
         """Instance attribute access to the com object's properties
@@ -657,37 +670,23 @@ class LdapEntry:
         return "<%s: %s>" % (self.__class__.__name__, str(self.path))
 
     def __eq__(self, other):
-        """Compare the COM objects' GUIDs"""
-        return self.com_object.GUID == other.com_object.GUID
+        """Compare the GUIDs"""
+        return self['GUID'] == other['GUID']
 
     def __hash__(self):
-        """Identify by the COM object's GUID"""
-        return self.com_object.GUID
+        """Identify by the GUID"""
+        return self['GUID']
 
-    def __iter__(self):
-        """Iterate over the com_object's contained objects
-        and yield an LdapEntry for each one
-        """
-        for contained_object in self.com_object:
-            yield produce_entry(from_object=contained_object)
-        #
-
-    def dump_items(self):
-        """Yield all properties as (name, value) tuples"""
-        for name in sorted(
-                set(self.__property_names) | set(self.__property_cache),
-                key=str.lower):
-            try:
-                yield (name, self[name])
-            except KeyError:
-                continue
-            #
+    def items(self):
+        """Yield all non-empty properties as (name, value) tuples"""
+        for name, value in sorted(self.__property_cache.items()):
+            yield (name, value)
         #
 
     def print_dump(self):
         """Print a representation of self"""
         print('%r\n{' % self)
-        for (name, value) in self.dump_items():
+        for (name, value) in self.items():
             if value:
                 print('  %s \u2192 %r' % (name, value))
             #
@@ -696,11 +695,9 @@ class LdapEntry:
 
     def child(self, relative_path):
         """Return the relative child of this entry. The relative_path
-        is inserted into this entry's AD path to make a coherent LDAP path
-        for a child entry, eg:
+        is inserted into this entry's LDAP path to make a coherent LDAP
+        path for a child entry, eg:
 
-        import com_ad
-        root = com_ad.root()
         users = root.child('cn=Users')
         """
         return produce_entry(from_path=LdapPath(relative_path, *self.path))
@@ -822,7 +819,7 @@ class Computer(LdapEntry):
         userAccountControl=USER_ACCOUNT_CONTROL.get_flag_names)
 
 
-class OrganisationalUnit(LdapEntry):
+class OrganizationalUnit(LdapEntry):
 
     """Active Directory Organisational unit"""
 
@@ -852,7 +849,7 @@ class OrganisationalUnit(LdapEntry):
         #
 
 
-class DomainDNS(OrganisationalUnit):
+class DomainDNS(OrganizationalUnit):
 
     """Active Directory Domain DNS"""
 
@@ -866,10 +863,7 @@ class DomainDNS(OrganisationalUnit):
         'minPwdAge': convert_to_datetime,
         'modifiedCount': convert_to_datetime,
         'modifiedCountAtLastProm': convert_to_datetime,
-        'objectSid': convert_to_sid,
-        'replUpToDateVector': convert_to_hex,
-        'repsFrom': convert_to_hex,
-        'repsTo': convert_to_hex}
+        'objectSid': convert_to_sid}
 
 
 class PublicFolder(LdapEntry):
@@ -877,15 +871,6 @@ class PublicFolder(LdapEntry):
     """Active Directory public folder"""
 
     ...
-
-
-ENTRY_CLASSES = {
-    'user': User,
-    'computer': Computer,
-    'group': Group,
-    'organizationalUnit': OrganisationalUnit,
-    'domainDNS': DomainDNS,
-    'publicFolder': PublicFolder}
 
 
 #
@@ -920,7 +905,7 @@ def produce_entry(from_path=None, from_object=None, lazy=True):
         #
     #
     if lazy and ldap_path in GLOBAL_CACHE:
-        return GLOBAL_CACHE[ldap_path]
+        return GLOBAL_CACHE[ldap_path.url]
     #
     if from_object is None:
         try:
@@ -931,14 +916,20 @@ def produce_entry(from_path=None, from_object=None, lazy=True):
             #
         #
     #
-    ldap_entry_class = ENTRY_CLASSES.get(com_object.Class, LdapEntry)
-    try:
-        GLOBAL_CACHE[ldap_path] = ldap_entry_class(com_object)
-    except Exception as error:
+    object_class_lower = com_object.Class.lower()
+    for ldap_entry_class in (
+            User, Group, DomainDNS, OrganizationalUnit,
+            Computer, PublicFolder):
+        if ldap_entry_class.__name__.lower() == object_class_lower:
+            GLOBAL_CACHE[ldap_path.url] = ldap_entry_class(com_object)
+            break
+        #
+    else:
         raise ValueError(
-            'Problem with object %s: %s' % (com_object, error)) from error
+            'Problem with object %s: No matching class %r found' % (
+                com_object, object_class_lower))
     #
-    return GLOBAL_CACHE[ldap_path]
+    return GLOBAL_CACHE[ldap_path.url]
 
 
 def root(server=None):
