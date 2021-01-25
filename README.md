@@ -1,4 +1,4 @@
-# com_ad
+# read_ad
 
 COM-based read access for Active Directory in Python
 
@@ -13,12 +13,12 @@ _(tba)_
 ## Examples
 
 ```python
-import com_ad
+import read_ad
 
-# com_ad.root() returns the cached Active Directory root entry
+# read_ad.root() returns the cached Active Directory root entry
 
 # find your own user in active directory
 import getpass
-my_user = com_ad.find_user(getpass.getuser())
+my_user = read_ad.find_user(getpass.getuser())
 
 ```
