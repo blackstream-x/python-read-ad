@@ -608,6 +608,12 @@ class LdapEntry:
             #
             self.__add_property(name, com_property)
         #
+        self.items = self.__property_cache.items
+
+    @property
+    def empty_properties(self):
+        """Return a sorted list of empty properties' names"""
+        return sorted(self.__empty_properties)
 
     @property
     def parent(self):
@@ -677,19 +683,13 @@ class LdapEntry:
         """Identify by the GUID"""
         return self['GUID']
 
-    def items(self):
-        """Yield all non-empty properties as (name, value) tuples"""
-        for name, value in sorted(self.__property_cache.items()):
-            yield (name, value)
-        #
-
     def print_dump(self):
-        """Print a representation of self"""
+        """Print all non-empty properties in
+        (case-sensitive) alphabetical order
+        """
         print('%r\n{' % self)
-        for (name, value) in self.items():
-            if value:
-                print('  %s \u2192 %r' % (name, value))
-            #
+        for (name, value) in sorted(self.items()):
+            print('  %s \u2192 %r' % (name, value))
         #
         print('}')
 
