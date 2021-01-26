@@ -921,15 +921,13 @@ def produce_entry(from_path=None, from_object=None, lazy=True):
             User, Group, DomainDNS, OrganizationalUnit,
             Computer, PublicFolder):
         if ldap_entry_class.__name__.lower() == object_class_lower:
-            GLOBAL_CACHE[ldap_path.url] = ldap_entry_class(com_object)
-            break
+            return GLOBAL_CACHE.setdefault(ldap_path.url,
+                                           ldap_entry_class(com_object))
         #
-    else:
-        raise ValueError(
-            'Problem with object %s: No matching class %r found' % (
-                com_object, object_class_lower))
     #
-    return GLOBAL_CACHE[ldap_path.url]
+    raise ValueError(
+        'Problem with object %s: No matching class %r found' % (
+            com_object, object_class_lower))
 
 
 def root(server=None):
