@@ -618,7 +618,7 @@ class LdapEntry:
     @property
     def parent(self):
         """Return this object's parent LDAP entry"""
-        return produce_entry(from_path=self['Parent'])
+        return produce_entry(self['Parent'])
 
     @property
     def path(self):
@@ -700,7 +700,7 @@ class LdapEntry:
 
         users = root.child('cn=Users')
         """
-        return produce_entry(from_path=LdapPath(relative_path, *self.path))
+        return produce_entry(LdapPath(relative_path, *self.path))
 
     def find(self, *args, **kwargs):
         """Return an LdapEntry for the first matching
@@ -708,7 +708,7 @@ class LdapEntry:
         """
         search_filter, kwargs = determine_search_filter(**kwargs)
         for found_path in self.search(search_filter, *args, **kwargs):
-            return produce_entry(from_path=found_path)
+            return produce_entry(found_path)
         #
         return None
 
@@ -788,7 +788,7 @@ class Group(LdapEntry):
         groups_list = []
         users_list = []
         for single_path in member_paths:
-            child_entry = produce_entry(from_path=single_path)
+            child_entry = produce_entry(single_path)
             if isinstance(child_entry, self.__class__):
                 groups_list.append(child_entry)
             elif isinstance(child_entry, User):
@@ -845,7 +845,7 @@ class OrganizationalUnit(LdapEntry):
         #
         for found_path in self.search(
                 SEARCH_FILTERS['userid'], *args_list, **kwargs):
-            return produce_entry(from_path=found_path)
+            return produce_entry(found_path)
         #
 
 
@@ -878,48 +878,30 @@ class PublicFolder(LdapEntry):
 #
 
 
-def produce_entry(from_path=None, from_object=None, lazy=True):
+def produce_entry(ldap_path, lazy=True):
     """Produce an LdapEntry or subclass instance
-    for either the given LDAP path or COM object.
-    Determine the parameter that was not provided automatically.
+    from the given LDAP path.
     If lazy is not set to False explicitly,
-    the entry associated with the provided or determined
-    LDAP path is returned from the global cache if it exists.
+    the entry associated with the provided LDAP path
+    is returned from the global cache if it exists.
     """
-    if from_path:
-        if from_object is not None:
-            raise ValueError('Specify either a path or a COM object')
-        #
-        if isinstance(from_path, LdapPath):
-            ldap_path = from_path
-        else:
-            ldap_path = LdapPath.from_string(from_path)
-        #
-    else:
-        com_object = from_object
-        try:
-            ldap_path = LdapPath.from_string(com_object.ADsPath)
-        except AttributeError as error:
-            raise ValueError(
-                'Specify either a path or a COM object') from error
-        #
+    if not isinstance(ldap_path, LdapPath):
+        ldap_path = LdapPath.from_string(ldap_path)
     #
     if lazy and ldap_path in GLOBAL_CACHE:
         return GLOBAL_CACHE[ldap_path.url]
     #
-    if from_object is None:
-        try:
-            com_object = win32com.client.GetObject(ldap_path.url)
-        except Exception as error:
-            raise ValueError(
-                'Problem with path %s: %s' % (ldap_path, error)) from error
-            #
+    try:
+        com_object = win32com.client.GetObject(ldap_path.url)
+    except Exception as error:
+        raise ValueError(
+            'Problem with path %s: %s' % (ldap_path, error)) from error
         #
     #
     object_class_lower = com_object.Class.lower()
     for ldap_entry_class in (
-            User, Group, DomainDNS, OrganizationalUnit,
-            Computer, PublicFolder):
+            User, Group, DomainDNS,
+            OrganizationalUnit, Computer, PublicFolder):
         if ldap_entry_class.__name__.lower() == object_class_lower:
             return GLOBAL_CACHE.setdefault(ldap_path.url,
                                            ldap_entry_class(com_object))
@@ -946,8 +928,7 @@ def root(server=None):
         default_naming_context = ldap_root.Get("defaultNamingContext")
         return GLOBAL_CACHE.setdefault(
             CACHE_KEY_ROOT,
-            produce_entry(
-                from_path=LdapPath.from_string(default_naming_context)))
+            produce_entry(LdapPath.from_string(default_naming_context)))
     #
 
 
