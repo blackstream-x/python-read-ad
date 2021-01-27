@@ -833,13 +833,13 @@ class OrganizationalUnit(LdapEntry):
             return
         #
         bitmask = USER_ACCOUNT_CONTROL['ADS_UF_ACCOUNTDISABLE']
-        selected_state = bitmask
+        desired_state = bitmask
         if active:
-            selected_state = 0
+            desired_state = 0
         #
         for result in search_filter.execute_query(self.path, *args, **kwargs):
             try:
-                if result.userAccountControl & bitmask == selected_state:
+                if result.userAccountControl & bitmask == desired_state:
                     yield result.ADsPath
                 #
             except TypeError:
