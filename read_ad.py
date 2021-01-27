@@ -533,24 +533,6 @@ SEARCH_FILTERS = {
         objectClass='User')}
 
 
-def determine_search_filter(**kwargs):
-    """Return a tuple containing the search filter
-    and the kwargs dict prepared for the search
-    Determine its type by keyword, and fall back to generic search
-    if none of the defined keywords were used.
-    """
-    for (keyword, search_filter) in SEARCH_FILTERS.items():
-        try:
-            value = kwargs.pop(keyword)
-        except KeyError:
-            continue
-        #
-        kwargs['_primary_key_'] = value
-        return (search_filter, kwargs)
-    #
-    return (SearchFilter(None), kwargs)
-
-
 class LdapEntry:
 
     """Store a subset of an LDAP entry's properties.
@@ -693,54 +675,14 @@ class LdapEntry:
         #
         print('}')
 
-    def child(self, relative_path):
+    def child(self, single_path_cmponent):
         """Return the relative child of this entry. The relative_path
         is inserted into this entry's LDAP path to make a coherent
         LDAP path for a child entry, eg:
 
         users = root.child('cn=Users')
         """
-        return produce_entry(LdapPath(relative_path, *self.path))
-
-    def find(self, *args, **kwargs):
-        """Return an LdapEntry for the first matching
-        search result.
-        """
-        search_filter, kwargs = determine_search_filter(**kwargs)
-        for found_path in self.search(search_filter, *args, **kwargs):
-            return produce_entry(found_path)
-        #
-        return None
-
-    def search(self, search_filter, *args, active=None, **kwargs):
-        """Yield LDAP paths (plain strings) for all found Entries.
-
-        If 'active' is set to True or False explicitly,
-        yield the path only if the userAccountControl
-        property value matches the desired state.
-        """
-        if active is None:
-            for result in search_filter.execute_query(
-                    self.path, *args, **kwargs):
-                yield result.ADsPath
-            #
-            return
-        #
-        bitmask = USER_ACCOUNT_CONTROL['ADS_UF_ACCOUNTDISABLE']
-        selected_state = bitmask
-        if active:
-            selected_state = 0
-        #
-        for result in search_filter.execute_query(self.path, *args, **kwargs):
-            try:
-                if result.userAccountControl & bitmask == selected_state:
-                    yield result.ADsPath
-                #
-            except TypeError:
-                # no userAccountControl property
-                yield result.ADsPath
-            #
-        #
+        return produce_entry(LdapPath(single_path_cmponent, *self.path))
 
 
 class User(LdapEntry):
@@ -825,6 +767,15 @@ class OrganizationalUnit(LdapEntry):
 
     user_search_fields = ('sAMAccountName', 'displayName', 'cn')
 
+    def find(self, *args, **kwargs):
+        """Return an LdapEntry for the first matching
+        search result.
+        """
+        for found_path in self.search(*args, **kwargs):
+            return produce_entry(found_path)
+        #
+        return None
+
     def find_user(self, *args, **kwargs):
         """Return a User object for the first matching
         search result.
@@ -846,8 +797,55 @@ class OrganizationalUnit(LdapEntry):
             #
         #
         for found_path in self.search(
-                SEARCH_FILTERS['userid'], *args_list, **kwargs):
+                *args_list, search_filter=SEARCH_FILTERS['userid'], **kwargs):
             return produce_entry(found_path)
+        #
+
+    def search(self, *args, active=None, search_filter=None, **kwargs):
+        """Yield LDAP paths (plain strings) for all found Entries.
+
+        If 'active' is set to True or False explicitly,
+        yield the path only if the userAccountControl
+        property value matches the desired state.
+
+        if 'search_filter' is not set, determine a search filter
+        automatically.
+        """
+        if not isinstance(search_filter, SearchFilter):
+            for (keyword, candidate) in SEARCH_FILTERS.items():
+                try:
+                    value = kwargs.pop(keyword)
+                except KeyError:
+                    continue
+                #
+                kwargs['_primary_key_'] = value
+                search_filter = candidate
+                break
+            else:
+                search_filter = SearchFilter(None)
+            #
+        #
+        if active is None:
+            for result in search_filter.execute_query(
+                    self.path, *args, **kwargs):
+                yield result.ADsPath
+            #
+            return
+        #
+        bitmask = USER_ACCOUNT_CONTROL['ADS_UF_ACCOUNTDISABLE']
+        selected_state = bitmask
+        if active:
+            selected_state = 0
+        #
+        for result in search_filter.execute_query(self.path, *args, **kwargs):
+            try:
+                if result.userAccountControl & bitmask == selected_state:
+                    yield result.ADsPath
+                #
+            except TypeError:
+                # no userAccountControl property
+                yield result.ADsPath
+            #
         #
 
 
@@ -919,7 +917,7 @@ def root(server=None):
     root of the logged-on active directory tree.
     """
     try:
-        return GLOBAL_CACHE[CACHE_KEY_ROOT]
+        return GLOBAL_CACHE[GLOBAL_CACHE[CACHE_KEY_ROOT]]
     except KeyError:
         root_dse_path = 'rootDSE'
         if server:
@@ -928,9 +926,9 @@ def root(server=None):
         ldap_root = win32com.client.GetObject(
             '%s%s' % (LdapPath.ldap_url_prefix, root_dse_path))
         default_naming_context = ldap_root.Get("defaultNamingContext")
-        return GLOBAL_CACHE.setdefault(
-            CACHE_KEY_ROOT,
-            produce_entry(LdapPath.from_string(default_naming_context)))
+        ldap_root_path = LdapPath.from_string(default_naming_context)
+        GLOBAL_CACHE[CACHE_KEY_ROOT] = ldap_root_path.url
+        return produce_entry(ldap_root_path)
     #
 
 
@@ -952,8 +950,7 @@ def find_user(*args, **kwargs):
 
 def search(*args, **kwargs):
     """Search from the cached root entry"""
-    search_filter, kwargs = determine_search_filter(**kwargs)
-    return root().search(search_filter, *args, **kwargs)
+    return root().search(*args, **kwargs)
 
 
 def search_explicit(query_string):
