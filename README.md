@@ -27,7 +27,7 @@ and the pywin32 module (https://pypi.org/project/pywin32/)
 
 ##### TIME_NEVER_KEYWORD
 
-> ```'<never>'``` as a txt replacement for an Active Directory "never" time.
+> ```'<never>'``` as a textual replacement for an Active Directory "never" time.
 
 #### Constants for ADO/COM access ###
 
