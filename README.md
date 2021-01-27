@@ -51,25 +51,42 @@ and the pywin32 module (https://pypi.org/project/pywin32/)
 
 ##### CACHE_KEY_CONNECTION
 
-> ```'_Connection_'```
+> ```'_Connection_'``` as the key for caching the connection object.
 
 ##### CACHE_KEY_ROOT
 
-> ```'_ActiveDirectoryRoot_'```
+> ```'_ActiveDirectoryRoot_'``` as the key for caching the Active Directory root URL.
 
 #### Mappings ####
-
-##### GROUP_TYPES
-
-> A **FlagsMapping()** with Active Directory group type bitmaps;
-> Values are taken from upstream (see https://github.com/tjguk/active_directory/blob/master/active_directory.py#L164)
 
 ##### GLOBAL_CACHE
 
 > A global cache of **LdapEntry** objects mapped to LDAP Urls,
-> plus the connection and the LDAP root URL.
+> plus the connection object and the Active Directory root URL.
 
-_(tba: AUTHENTICATION_TYPES, SAM_ACCOUNT_TYPES, USER_ACCOUNT_CONTROL and SEARCH_FILTERS)_
+##### GROUP_TYPES
+
+> A **FlagsMapping()** with Active Directory group type bitmasks;
+> Values are taken from upstream (see https://github.com/tjguk/active_directory/blob/master/active_directory.py#L164)
+
+##### AUTHENTICATION_TYPES
+
+> A **FlagsMapping()** with Active Directory authentication type bitmasks;
+> Values are taken from upstream (see https://github.com/tjguk/active_directory/blob/master/active_directory.py#L172)
+
+##### SAM_ACCOUNT_TYPES
+
+> A **UnsignedIntegerMapping()** with Active Directory account type magic numbers;
+> Values are taken from upstream (see https://github.com/tjguk/active_directory/blob/master/active_directory.py#L187)
+
+##### USER_ACCOUNT_CONTROL
+
+> A **FlagsMapping()** with Active Directory user account state bitmasks;
+> Values are taken from upstream (see https://github.com/tjguk/active_directory/blob/master/active_directory.py#L202)
+
+##### SEARCH_FILTERS
+
+> A dict of **SearchFilter** instances mapped to keywords for searching groups, computers, public folders, organizational units or users.
 
 ### Classes
 
@@ -82,6 +99,7 @@ Member access usng a name returns the associated number und vice versa.
 
 > Explicitly returns the name associated with the given number.
 
+
 #### FlagsMapping(_\*\*kwargs_)
 
 An **UnsignedIntegerMapping** subclass for bitmasks mapped to flag names
@@ -90,7 +108,51 @@ An **UnsignedIntegerMapping** subclass for bitmasks mapped to flag names
 
 > Returns a set of all flag names for the bitmasks matching the given number.
 
-_(tba: LdapPath, RecordSet, SearchFilter)_
+
+
+_(tba: PathComponent, RecordSet)_
+
+#### LdapPath(_\*parts_)
+
+Instances of this class represent an LDAP path.
+They are initialized using the provided parts, which can be strings or **PathComponent** instances.
+
+##### .components
+
+> The compoents of the path (a tuple of **PathComponent** instances)
+
+##### .rdn
+
+> The relative distinguished name of the LPAP path (the **.value** of the first component)
+
+##### .url
+
+> The LDAP URL of the path (the distinguished name prefixed with ```'LDAP://'```)
+
+##### .from_string(string)
+
+> _Constructor (class)method_, returns an **LdapPath** instance built from the provided _string_ splitted by non-escaped commas (```,```).
+
+#### SearchFilter(_primary\_key\_name, \*\*fixed_parameters_)
+
+Instances of this class hold a primary key name and a mapping of fixed parameters for an LDAP search.
+
+##### .where_clause(_\*args, \*\*kwargs_)
+
+> Return a ```WHERE``` clause for an SQL-like LDAP query string,
+> built from the provided positional and keyword arguments,
+> all concatenated unsing ```AND```.  
+> The stored fixed parameters override the provided keyword arguments.
+> If a _\_primary\_key\__ keyword was provided, its value is
+> built into the clause using the stored primary key name.
+
+##### .execute_query(_ldap\_path, \*args, \*\*kwargs_)
+
+> Return an interator from the result of an LDAP query
+> (using the **RecordSet.query()** class method)
+> starting at the URL of the provided **LdapPath** instance,
+> using SQL syntax with the WHERE clause genarated by **.where_clause()** method.
+
 
 #### LdapEntry(_com\_object_)
 
@@ -125,6 +187,7 @@ or (in the case of suitable property names) via attribute access using ._propert
 > Returns an **LdapEntry** subclass instance for a relative child of this instance.
 > Its path is determined by prepending the _single\_path\_component_ to this instance's path. 
 
+
 #### User(_com\_object_)
 
 **LdapEntry** subclass for Active Directory users
@@ -132,6 +195,7 @@ or (in the case of suitable property names) via attribute access using ._propert
 ##### .account_disabled
 
 > ```True``` if the account is disabled, ```False``` if it is active.
+
 
 #### Group(_com\_object_)
 
@@ -142,9 +206,11 @@ or (in the case of suitable property names) via attribute access using ._propert
 > Returns an iterator over tuples, each consisting of: _1._ the current **Group** instance,
 > _2._ a list of member **Group** instances and _3._ a list of member **User** instances.
 
+
 #### Computer(_com\_object_)
 
 **LdapEntry** subclass for Active Directory computers
+
 
 #### OrganizationalUnit(_com\_object_)
 
@@ -175,13 +241,16 @@ or (in the case of suitable property names) via attribute access using ._propert
 > Else, it determines which SearchFilter instance to use
 > from the **SEARCH_FILTERS** mapping.
 
+
 #### DomainDNS(_com\_object_)
 
 **OrganizationalUnit** subclass for the Active Directory domain DNS
 
+
 #### PublicFolder(_com\_object_)
 
 **LdapEntry** subclass for Active Directory public folders
+
 
 ### Public interface functions
 
