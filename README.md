@@ -21,7 +21,7 @@ and the pywin32 module (https://pypi.org/project/pywin32/)
 
 > A datetime.datetime instance with value 1600-01-01, the base date of Active Directory times.
 
-**TIME_NEVER_HIGH_PART
+##### TIME_NEVER_HIGH_PART
 
 > ```0x7fffffff```
 
@@ -84,11 +84,11 @@ Member access usng a name returns the associated number und vice versa.
 
 #### FlagsMapping(_\*\*kwargs_)
 
-An **UnsignedIntegerMapping** subclass for bitmaps mapped to flag names
+An **UnsignedIntegerMapping** subclass for bitmasks mapped to flag names
 
 ##### .get_flag_names(_number_)
 
-> Returns a set of all flag names for the bitasks matching the given number.
+> Returns a set of all flag names for the bitmasks matching the given number.
 
 _(tba: LdapPath, RecordSet, SearchFilter)_
 
@@ -131,7 +131,7 @@ or (in the case of suitable property names) via attribute access using ._propert
 
 ##### .account_disabled
 
-> ```True```True if the account is disabled ```False``` if it is active.
+> ```True``` if the account is disabled, ```False``` if it is active.
 
 #### Group(_com\_object_)
 
@@ -195,7 +195,9 @@ or (in the case of suitable property names) via attribute access using ._propert
 > stores it in **GLOBAL_CACHE** (associated to the LDAP path URL),
 > and returns the Instance.
 
-> if _lazy_ is set to ```True``` (the default), this function returns the cached entry if it exists.
+> if _lazy_ is set to ```True``` (the default), this function returns
+> the suitable cached entry if it exists, avoiding expensive lookups
+> and network traffic.
 
 #### root(_server=None_)
 
