@@ -553,33 +553,33 @@ def determine_search_filter(**kwargs):
 
 class LdapEntry:
 
-    """Wrap an LDAP entry for easier access
-    to its properties and children. May be instantiated
-    Preferably instantiated via the produce_entry()
+    """Store a subset of an LDAP entry's properties.
+    Should be instantiated via the produce_entry()
     factory function.
     """
 
     additional_conversions = {}
-    additional_ignores = set()
-    additional_properties = set()
-    user_search_fields = ('sAMAccountName', 'displayName', 'cn')
+    property_adspath = 'ADsPath'
+    property_ntsecuritydescriptor = 'nTSecurityDescriptor'
+    property_guid = 'GUID'
+    property_parent = 'Parent'
+    ignore_properties = {property_ntsecuritydescriptor}
+    additional_properties = {
+        property_adspath, property_guid, property_parent}
 
     def __init__(self, com_object):
-        """Be careful here with attribute assignment;
-        __setattr__ & __getattr__ will fall over
-        each other if you aren't.
+        """Store properties form the provided COM object.
+        The property names are determined from the schema,
+        plus the required (cls.)additional_properties,
+        minus the preformance-degrading (cls.)ignore_properties.
         """
-        ignore_properties = {
-            'nTSecurityDescriptor'} | self.additional_ignores
-        add_properties = {
-            'GUID', 'ADsPath', 'Parent'} | self.additional_properties
         schema = win32com.client.GetObject(com_object.Schema)
         property_names = tuple(
             single_property for single_property in
             set(schema.MandatoryProperties)
             | set(schema.OptionalProperties)
-            | add_properties
-            if single_property not in ignore_properties)
+            | self.additional_properties
+            if single_property not in self.ignore_properties)
         conversions = dict(
             objectGUID=convert_to_guid,
             uSNChanged=convert_to_datetime,
@@ -618,12 +618,12 @@ class LdapEntry:
     @property
     def parent(self):
         """Return this object's parent LDAP entry"""
-        return produce_entry(self['Parent'])
+        return produce_entry(self[self.property_parent])
 
     @property
     def path(self):
         """Return the COM object's ADsPath"""
-        return LdapPath.from_string(self['ADsPath'])
+        return LdapPath.from_string(self[self.property_adspath])
 
     def __add_property(self, name, value):
         """Add a property value only if it is not a
@@ -677,11 +677,11 @@ class LdapEntry:
 
     def __eq__(self, other):
         """Compare the GUIDs"""
-        return self['GUID'] == other['GUID']
+        return self[self.property_guid] == other[self.property_guid]
 
     def __hash__(self):
         """Identify by the GUID"""
-        return self['GUID']
+        return self[self.property_guid]
 
     def print_dump(self):
         """Print all non-empty properties in
@@ -695,8 +695,8 @@ class LdapEntry:
 
     def child(self, relative_path):
         """Return the relative child of this entry. The relative_path
-        is inserted into this entry's LDAP path to make a coherent LDAP
-        path for a child entry, eg:
+        is inserted into this entry's LDAP path to make a coherent
+        LDAP path for a child entry, eg:
 
         users = root.child('cn=Users')
         """
@@ -822,6 +822,8 @@ class Computer(LdapEntry):
 class OrganizationalUnit(LdapEntry):
 
     """Active Directory Organisational unit"""
+
+    user_search_fields = ('sAMAccountName', 'displayName', 'cn')
 
     def find_user(self, *args, **kwargs):
         """Return a User object for the first matching
