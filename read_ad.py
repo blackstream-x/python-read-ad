@@ -13,7 +13,7 @@ with a few cherry-picks from the current implementation
 (<https://github.com/tjguk/active_directory/blob/master/active_directory.py>)
 
 Rewrite for Python3 with minimized dependencies
-by Rainer Schwarzbach, 2021-01-25
+by Rainer Schwarzbach, 2021-01-28
 
 License: MIT
 
@@ -161,6 +161,17 @@ class UnsignedIntegerMapping():
             self.__by_names[name] = number
             self.__by_numbers[number] = name
 
+    def get_name(self, number):
+        """Return the name assigned to the number"""
+        if number is None:
+            return None
+        #
+        return self.__by_numbers[signed_to_unsigned(number)]
+
+    def items(self):
+        """Items: by name"""
+        return self.__by_names.items()
+
     def __getitem__(self, item):
         """Get number by name or name by number"""
         try:
@@ -169,10 +180,6 @@ class UnsignedIntegerMapping():
             return self.__by_numbers[signed_to_unsigned(item)]
         #
 
-    def items(self):
-        """Items: by name"""
-        return self.__by_names.items()
-
     def __repr__(self):
         """Return a readable presentation of the entire mapping"""
         return '<%s: %s>' % (
@@ -180,13 +187,6 @@ class UnsignedIntegerMapping():
             ', '.join(
                 '%s <=> %s' % (name, number)
                 for (name, number) in self.items()))
-
-    def get_name(self, number):
-        """Return the name assigned to the number"""
-        if number is None:
-            return None
-        #
-        return self.__by_numbers[signed_to_unsigned(number)]
 
 
 class FlagsMapping(UnsignedIntegerMapping):
@@ -284,35 +284,6 @@ class RecordSet():
             self.__fields[field.Name] = field.Value
         #
 
-    def __getattr__(self, name):
-        """Allow access to fields via attributes"""
-        try:
-            return self.__fields[name]
-        except KeyError as error:
-            raise AttributeError(
-                '%r object has no attribute %r' % (
-                    self.__class__.__name__, name)) from error
-        #
-
-    def dump_fields(self):
-        """Yield all field names and values as tuples"""
-        for name, item in self.__fields.items():
-            yield (name, item)
-        #
-
-    def __repr__(self):
-        """Return a readable presentation of the entire record"""
-        return '<%s: %s>' % (
-            self.__class__.__name__,
-            ', '.join('%s=%r' % field for field in self.dump_fields()))
-
-    def __str__(self):
-        """Return a presentation of the entire record
-        suitable for output
-        """
-        return '{\n%s\n}' % (
-            ', '.join('  %s=%r' % field for field in self.dump_fields()))
-
     @classmethod
     def query(cls, query_string, **kwargs):
         """Yield RecordSet objects from each result of an ADO query.
@@ -342,6 +313,35 @@ class RecordSet():
             result_set.MoveNext()
         #
 
+    def dump_fields(self):
+        """Yield all field names and values as tuples"""
+        for name, item in self.__fields.items():
+            yield (name, item)
+        #
+
+    def __getattr__(self, name):
+        """Allow access to fields via attributes"""
+        try:
+            return self.__fields[name]
+        except KeyError as error:
+            raise AttributeError(
+                '%r object has no attribute %r' % (
+                    self.__class__.__name__, name)) from error
+        #
+
+    def __repr__(self):
+        """Return a readable presentation of the entire record"""
+        return '<%s: %s>' % (
+            self.__class__.__name__,
+            ', '.join('%s=%r' % field for field in self.dump_fields()))
+
+    def __str__(self):
+        """Return a presentation of the entire record
+        suitable for output
+        """
+        return '{\n%s\n}' % (
+            ', '.join('  %s=%r' % field for field in self.dump_fields()))
+
 
 class PathComponent:
 
@@ -349,15 +349,16 @@ class PathComponent:
 
     prx_equals = re.compile(r'(?<!\\)=')
 
-    def __init__(self, **kwargs):
-        """Initialize from the first given keyword"""
-        for (keyword, value) in kwargs.items():
-            self.__keyword = keyword.lower()
-            self.__value = value
-            break
-        else:
-            raise ValueError('No arguments provided!')
+    def __init__(self, keyword, value):
+        """Initialize from the keyword and value arguments"""
+        keyword = keyword.strip().lower()
+        value = value.strip()
+        if not keyword or not value:
+            raise ValueError(
+                "'%s=%s' is not a valid path component!" % (keyword, value))
         #
+        self.__keyword = keyword
+        self.__value = value
 
     @property
     def keyword(self):
@@ -366,8 +367,27 @@ class PathComponent:
 
     @property
     def value(self):
-        """Return the keyword"""
+        """Return the value"""
         return self.__value
+
+    @classmethod
+    def from_string(cls, string):
+        """Construct a PathComponent from the given string"""
+        try:
+            (keyword, value) = cls.prx_equals.split(string)
+        except ValueError as error:
+            raise ValueError(
+                '%r is not a valid path component!' % string) from error
+        #
+        return cls(keyword, value)
+
+    def __eq__(self, other):
+        """Rich comparison: equals"""
+        return str(self) == str(other)
+
+    def __hash__(self):
+        """Return a hash over the normal string representation"""
+        return hash(str(self))
 
     def __repr__(self):
         """Return a string representation"""
@@ -376,17 +396,6 @@ class PathComponent:
     def __str__(self):
         """Return a normalized string representation"""
         return '%s=%s' % (self.__keyword, self.__value)
-
-    @classmethod
-    def from_string(cls, string):
-        """Construct a PathComponent from the given string"""
-        try:
-            kwargs = dict([cls.prx_equals.split(string)])
-        except ValueError as error:
-            raise ValueError(
-                '%r is not a valid path component!' % string) from error
-        #
-        return cls(**kwargs)
 
 
 class LdapPath:
@@ -400,6 +409,9 @@ class LdapPath:
 
     def __init__(self, *parts):
         """Keep a tuple of components"""
+        if not parts:
+            raise ValueError('Empty paths are not supported.')
+        #
         components = []
         for single_part in parts:
             if not isinstance(single_part, PathComponent):
@@ -411,7 +423,7 @@ class LdapPath:
 
     @property
     def components(self):
-        """Return the componets tuple"""
+        """Return the components tuple"""
         return self.__components
 
     @property
@@ -439,9 +451,13 @@ class LdapPath:
                 '%r is not a valid LDAP path!' % string) from error
         #
 
-    def __getitem__(self, key):
-        """Return the hash over the distinguished name"""
-        return self.__components[key]
+    def __eq__(self, other):
+        """Rich comparison: equals"""
+        return str(self) == str(other)
+
+    def __getitem__(self, index):
+        """Return the path component at position index"""
+        return self.__components[index]
 
     def __hash__(self):
         """Return a hash over the distinguished name"""
@@ -475,6 +491,19 @@ class SearchFilter:
         self.__primary_key_name = primary_key_name
         self.__fixed_parameters = fixed_parameters
 
+    def execute_query(self, ldap_path, *args, **kwargs):
+        """Build an SQL statement and execute a query
+        from the provided LDAP path.
+        Yield RecordSet objects.
+        """
+        sql_statement = '\n'.join([
+            'SELECT ADsPath, userAccountControl',
+            'FROM %r' % ldap_path.url,
+            self.where_clause(*args, **kwargs)])
+        for result in RecordSet.query(sql_statement):
+            yield result
+        #
+
     def where_clause(self, *args, **kwargs):
         """Build a WHERE clause for an
         LDAP query SQL statement (if necessary)
@@ -491,19 +520,6 @@ class SearchFilter:
             return 'WHERE %s' % ' AND '.join(where_clauses)
         #
         return ''
-
-    def execute_query(self, ldap_path, *args, **kwargs):
-        """Build an SQL statement and execute a query
-        from the provided LDAP path.
-        Yield RecordSet objects.
-        """
-        sql_statement = '\n'.join([
-            'SELECT ADsPath, userAccountControl',
-            'FROM %r' % ldap_path.url,
-            self.where_clause(*args, **kwargs)])
-        for result in RecordSet.query(sql_statement):
-            yield result
-        #
 
     def __repr__(self):
         """Return a string representation"""
@@ -621,6 +637,41 @@ class LdapEntry:
             self.__property_cache[name] = value
         #
 
+    def child(self, single_path_cmponent):
+        """Return the relative child of this entry. The relative_path
+        is inserted into this entry's LDAP path to make a coherent
+        LDAP path for a child entry, eg:
+
+        users = root.child('cn=Users')
+        """
+        return produce_entry(LdapPath(single_path_cmponent, *self.path))
+
+    def print_dump(self):
+        """Print all non-empty properties in
+        (case-sensitive) alphabetical order
+        """
+        print('%r\n{' % self)
+        for (name, value) in sorted(self.items()):
+            print('  %s \u2192 %r' % (name, value))
+        #
+        print('}')
+
+    def __eq__(self, other):
+        """Compare the GUIDs"""
+        return self[self.property_guid] == other[self.property_guid]
+
+    def __getattr__(self, name):
+        """Instance attribute access to the com object's properties
+        via item access
+        """
+        try:
+            return self[name]
+        except KeyError as error:
+            raise AttributeError(
+                '%r object has no attribute %r' % (
+                    self.__class__.__name__, name)) from error
+        #
+
     def __getitem__(self, name):
         """Access the properties as dict members,
         using case-insensitive names
@@ -635,21 +686,9 @@ class LdapEntry:
         #
         raise KeyError(name)
 
-    def __getattr__(self, name):
-        """Instance attribute access to the com object's properties
-        via item access
-        """
-        try:
-            return self[name]
-        except KeyError as error:
-            raise AttributeError(
-                '%r object has no attribute %r' % (
-                    self.__class__.__name__, name)) from error
-        #
-
-    def __str__(self):
-        """Return the path"""
-        return str(self.path)
+    def __hash__(self):
+        """Identify by the GUID"""
+        return hash(self[self.property_guid])
 
     def __repr__(self):
         """Return a representation with the class name
@@ -657,32 +696,9 @@ class LdapEntry:
         """
         return "<%s: %s>" % (self.__class__.__name__, str(self.path))
 
-    def __eq__(self, other):
-        """Compare the GUIDs"""
-        return self[self.property_guid] == other[self.property_guid]
-
-    def __hash__(self):
-        """Identify by the GUID"""
-        return self[self.property_guid]
-
-    def print_dump(self):
-        """Print all non-empty properties in
-        (case-sensitive) alphabetical order
-        """
-        print('%r\n{' % self)
-        for (name, value) in sorted(self.items()):
-            print('  %s \u2192 %r' % (name, value))
-        #
-        print('}')
-
-    def child(self, single_path_cmponent):
-        """Return the relative child of this entry. The relative_path
-        is inserted into this entry's LDAP path to make a coherent
-        LDAP path for a child entry, eg:
-
-        users = root.child('cn=Users')
-        """
-        return produce_entry(LdapPath(single_path_cmponent, *self.path))
+    def __str__(self):
+        """Return the path"""
+        return str(self.path)
 
 
 class User(LdapEntry):
@@ -692,8 +708,6 @@ class User(LdapEntry):
     """
 
     additional_conversions = dict(
-        pwdLastSet=convert_to_datetime,
-        objectSid=convert_to_sid,
         accountExpires=convert_to_datetime,
         badPasswordTime=convert_to_datetime,
         lastLogoff=convert_to_datetime,
@@ -701,6 +715,8 @@ class User(LdapEntry):
         lastLogonTimestamp=convert_to_datetime,
         lockoutTime=convert_to_datetime,
         msExchMailboxGuid=convert_to_guid,
+        objectSid=convert_to_sid,
+        pwdLastSet=convert_to_datetime,
         sAMAccountType=SAM_ACCOUNT_TYPES.get_name,
         userAccountControl=USER_ACCOUNT_CONTROL.get_flag_names)
 
@@ -750,12 +766,12 @@ class Computer(LdapEntry):
     """Active Directory computer"""
 
     additional_conversions = dict(
-        objectSid=convert_to_sid,
         accountExpires=convert_to_datetime,
         badPasswordTime=convert_to_datetime,
         lastLogoff=convert_to_datetime,
         lastLogon=convert_to_datetime,
         lastLogonTimestamp=convert_to_datetime,
+        objectSid=convert_to_sid,
         pwdLastSet=convert_to_datetime,
         sAMAccountType=SAM_ACCOUNT_TYPES.get_name,
         userAccountControl=USER_ACCOUNT_CONTROL.get_flag_names)
@@ -853,17 +869,17 @@ class DomainDNS(OrganizationalUnit):
 
     """Active Directory Domain DNS"""
 
-    additional_conversions = {
-        'creationTime': convert_to_datetime,
-        'dSASignature': convert_to_hex,
-        'forceLogoff': convert_to_datetime,
-        'lockoutDuration': convert_to_datetime,
-        'lockoutObservationWindow': convert_to_datetime,
-        'maxPwdAge': convert_to_datetime,
-        'minPwdAge': convert_to_datetime,
-        'modifiedCount': convert_to_datetime,
-        'modifiedCountAtLastProm': convert_to_datetime,
-        'objectSid': convert_to_sid}
+    additional_conversions = dict(
+        creationTime=convert_to_datetime,
+        dSASignature=convert_to_hex,
+        forceLogoff=convert_to_datetime,
+        lockoutDuration=convert_to_datetime,
+        lockoutObservationWindow=convert_to_datetime,
+        maxPwdAge=convert_to_datetime,
+        minPwdAge=convert_to_datetime,
+        modifiedCount=convert_to_datetime,
+        modifiedCountAtLastProm=convert_to_datetime,
+        objectSid=convert_to_sid)
 
 
 class PublicFolder(LdapEntry):
@@ -951,18 +967,6 @@ def find_user(*args, **kwargs):
 def search(*args, **kwargs):
     """Search from the cached root entry"""
     return root().search(*args, **kwargs)
-
-
-def search_explicit(query_string):
-    """Search the Active Directory by specifying an explicit
-    query string.
-
-    The results will *not* be LDAP paths but RecordSet instances,
-    the fields of which can be accessed as attributes.
-    """
-    for result in RecordSet.query(query_string):
-        yield result
-    #
 
 
 # vim: fileencoding=utf-8 ts=4 sts=4 sw=4 autoindent expandtab syntax=python:
