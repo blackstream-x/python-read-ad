@@ -248,13 +248,13 @@ by using the **produce\_entry()** function below.
 **LdapEntry** subclass for Active Directory users
 
 Interesting properties include:
-* sAMAccountName - the user ID
-* givenName - the first name
-* sn - the last name
-* title - eg a PhD
-* manager - the user's direct boss (distinguished name)
-* memberOf - all groups the user is a direct member of (a tuple of distinguished names)
-+ userAccountControl - originally a number, but resolved to a set of flag names from **USER_ACCOUNT_CONTROL**
+* ```sAMAccountName``` - the user ID
+* ```givenName``` - the first name
+* ```sn``` - the last name
+* ```title``` - eg a PhD
+* ```manager``` - the user's direct boss (distinguished name)
+* ```memberOf``` - all groups the user is a direct member of (a tuple of distinguished names)
+* ```userAccountControl``` - originally a number, but resolved to a set of flag names from **USER_ACCOUNT_CONTROL**
 
 ##### .account_disabled
 
@@ -266,8 +266,8 @@ Interesting properties include:
 **LdapEntry** subclass for Active Directory groups
 
 Interesting properties include:
-* member - all direct members (users and groups, a tuple of distinguished names)
-* memberOf - all groups this group is a direct member of (a tuple of distinguished names)
+* ```member``` - all direct members (users and groups, a tuple of distinguished names)
+* ```memberOf``` - all groups this group is a direct member of (a tuple of distinguished names)
 
 ##### .walk()
 
@@ -300,12 +300,12 @@ Interesting properties include:
 > from an LDAP search using **.search()**, or None if nothing was found.
 
 > In contrary to the **.find()** method above, the first
-> positional argument -- if any are provided -- is treated differently:  
-> It is matched against ```sAMAccountName```, ```displayName```, ```cn```
+> positional argument - if any are provided - is treated differently:  
+> It is matched against each one of ```sAMAccountName```, ```displayName``` and ```cn```
 > by building suitable conditions joined by ```'OR'``` into the query's ```WHERE``` clause.
 > Remaining positional arguments are treated as in **.find()**.
 
-> The _search\_filter_ agrument for **.search()** is set to the
+> The _search\_filter_ argument for **.search()** is set to the
 > user search filter (**SEARCH_FILTER\[**```'userid'```**\]**).
 
 ##### .search(_\*args, active=None, search\_filter=None, \*\*kwargs_)
@@ -386,10 +386,6 @@ Interesting properties include:
 > See the documentation of the **OrganizationalUnit**'s method
 > for the treatment of arguments and keyword arguments.
 
-#### search_explicit(_query\_string_)
-
-> Returns an iterator over **RecordSet** instances from a query using
-> the given _query\_string_
 
 ## Examples
 
