@@ -1,7 +1,7 @@
 # python-read-ad
 
 COM-based readonly access for Active Directory in Python,
-_forked from active_directory.py v0.6.7 by Tim Golden_
+_forked from Tim Golden's active_directory.py v0.6.7_
 
 ## Module description
 
@@ -71,23 +71,23 @@ version of the original, hosted at https://github.com/tjguk/active_directory.
 
 ##### GROUP_TYPES
 
-> A **FlagsMapping()** with Active Directory group type bitmasks;
-> Values are taken from upstream (see https://github.com/tjguk/active_directory/blob/master/active_directory.py#L164)
+> A **FlagsMapping()** with Active Directory group type bitmasks
+> (values are taken from https://github.com/tjguk/active_directory/blob/master/active_directory.py#L164)
 
 ##### AUTHENTICATION_TYPES
 
-> A **FlagsMapping()** with Active Directory authentication type bitmasks;
-> Values are taken from upstream (see https://github.com/tjguk/active_directory/blob/master/active_directory.py#L172)
+> A **FlagsMapping()** with Active Directory authentication type bitmasks
+> (values are taken from https://github.com/tjguk/active_directory/blob/master/active_directory.py#L172)
 
 ##### SAM_ACCOUNT_TYPES
 
-> A **UnsignedIntegerMapping()** with Active Directory account type magic numbers;
-> Values are taken from upstream (see https://github.com/tjguk/active_directory/blob/master/active_directory.py#L187)
+> A **UnsignedIntegerMapping()** with Active Directory account type magic numbers
+> (values are taken from https://github.com/tjguk/active_directory/blob/master/active_directory.py#L187)
 
 ##### USER_ACCOUNT_CONTROL
 
-> A **FlagsMapping()** with Active Directory user account state bitmasks;
-> Values are taken from upstream (see https://github.com/tjguk/active_directory/blob/master/active_directory.py#L202)
+> A **FlagsMapping()** with Active Directory user account state bitmasks
+> (values are taken from https://github.com/tjguk/active_directory/blob/master/active_directory.py#L202)
 
 ##### SEARCH_FILTERS
 
@@ -158,7 +158,7 @@ They are initialized with a keyword and a value, in this example: ```'cn'``` and
 
 ##### .from_string(string)
 
-> _Constructor (class)method_, returns an **PathComponent** instance built from keyword and value determined by splitting _string_ at a non-escaped equals sign (```=```).
+> _Constructor (class)method_, returns a **PathComponent** instance built from keyword and value determined by splitting _string_ at a non-escaped equals sign (```=```).
 
 
 #### LdapPath(_\*parts_)
@@ -209,6 +209,11 @@ Instances of this class hold a primary key name and a mapping of fixed parameter
 Stores a subset of an LDAP entry's properties.
 The stored properties can be accessed via item access using \[_property\_name_\]
 or (in the case of suitable property names) via attribute access using ._property\_name_
+
+This is the base class for objects from the Active Directory.
+
+All **LdapPath** subclasses instances should be instantiated 
+by using the **produce\_entry()** function below.
 
 ##### .empty\_properties
 
@@ -294,14 +299,14 @@ Interesting properties include:
 > Returns a **User** instance made from the first found LDAP entry
 > from an LDAP search using **.search()**, or None if nothing was found.
 
-> In contrary to the **.find()** method above, the first positional argument
-> - if any are provided - is treated differently:  
+> In contrary to the **.find()** method above, the first
+> positional argument -- if any are provided -- is treated differently:  
 > It is matched against ```sAMAccountName```, ```displayName```, ```cn```
 > by building suitable conditions joined by ```'OR'``` into the query's ```WHERE``` clause.
 > Remaining positional arguments are treated as in **.find()**.
 
 > The _search\_filter_ agrument for **.search()** is set to the
-> user search filter (**SEARCH_FILTER\['userid'\]**).
+> user search filter (**SEARCH_FILTER\[**```'userid'```**\]**).
 
 ##### .search(_\*args, active=None, search\_filter=None, \*\*kwargs_)
 
@@ -313,7 +318,7 @@ Interesting properties include:
 
 > If _search_filter_ is set to a SearchFilter instance,
 > this method uses that instance to search the Active Directory.
-> Else, if a keyword matching any of the **(SEARCH_FILTERS)[#SEARCH_FILTERS]** keys
+> Else, if a keyword matching any of the **SEARCH_FILTERS** keys
 > was provided, that search filter is used with this keyword's value
 > specified as the _\_primary\_key\__ keyword's value.  
 > In all other cases, an empty search filter
@@ -337,10 +342,14 @@ Interesting properties include:
 > **LdapEntry** subclass factory function.
 
 > Determines the suitable **LdapEntry** subclass from the
-> COM object found at the given LDAP path.
+> COM object found at the LDAP URL.
 > Generates an instance of this class from the COM object,
 > stores it in **GLOBAL_CACHE** (associated to the LDAP path URL),
 > and returns the Instance.
+
+> _ldap\_path_ may be a string containing either a distinguished name or an LDAP URL
+> (which is basically a distinguished name prefixed with ```'LDAP://'```),
+> or an **LdapPath** instance.
 
 > if _lazy_ is set to ```True``` (the default), this function returns
 > the suitable cached entry if it exists, avoiding expensive lookups
@@ -357,7 +366,7 @@ Interesting properties include:
 > from an LDAP search starting at the active Directory root's path,
 > or None if nothing was found.
 
-> See the documentation of the (**OrganizationalUnit**)[#OrganizationalUnitcom_object]'s method
+> See the documentation of the **OrganizationalUnit**'s method
 > for the treatment of arguments and keyword arguments.
 
 #### find_user(_\*args, \*\*kwargs_)
@@ -366,7 +375,7 @@ Interesting properties include:
 > from an LDAP search starting at the active Directory root's path,
 > or None if nothing was found.
 
-> See the documentation of the (**OrganizationalUnit**)[#OrganizationalUnitcom_object]'s method
+> See the documentation of the **OrganizationalUnit**'s method
 > for the treatment of arguments and keyword arguments.
 
 #### search(_\*args, \*\*kwargs_)
@@ -374,7 +383,7 @@ Interesting properties include:
 > Returns an iterator over all found LDAP paths
 > from an LDAP search starting at the active Directory root's path.
 
-> See the documentation of the (**OrganizationalUnit**)[#OrganizationalUnitcom_object]'s method
+> See the documentation of the **OrganizationalUnit**'s method
 > for the treatment of arguments and keyword arguments.
 
 #### search_explicit(_query\_string_)
