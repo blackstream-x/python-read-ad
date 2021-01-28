@@ -1,15 +1,20 @@
-# read_ad
+# python-read-ad
 
-COM-based readonly access for Active Directory in Python
+COM-based readonly access for Active Directory in Python,
+_forked from active_directory.py v0.6.7 by Tim Golden_
 
-_forked off active_directory.py v0.6.7 by Tim Golden_
+## Module description
+
+Module name: ```read_ad```
+
+Dependencies: Python 3.x and the pywin32 module (https://pypi.org/project/pywin32/)
+
+Goals: minimum dependencies, maximum speed, easy usage.
 
 In contrast to the original, this module provides read access only.
 For full-featured Active Directory access, please refer to the latest
-implementation of the original (https://github.com/tjguk/active_directory).
+version of the original, hosted at https://github.com/tjguk/active_directory.
 
-This module requires Python 3.x (tested with 3.6 and above)
-and the pywin32 module (https://pypi.org/project/pywin32/)
 
 ## Module contents
 
@@ -19,15 +24,15 @@ and the pywin32 module (https://pypi.org/project/pywin32/)
 
 ##### BASE_TIME
 
-> A datetime.datetime instance with value 1600-01-01, the base date of Active Directory times.
+> A datetime.datetime instance with a value of ```1601-01-01T00:00:00```, the base date of all Active Directory times.
 
 ##### TIME_NEVER_HIGH_PART
 
-> ```0x7fffffff```
+> ```0x7fffffff``` - the high 32 bit part of the Active Directory timestanp reserved for "never".  
 
 ##### TIME_NEVER_KEYWORD
 
-> ```'<never>'``` as a textual replacement for an Active Directory "never" time.
+> ```'<never>'``` - a textual replacement for an Active Directory "never" time.
 
 #### Constants for ADO/COM access ###
 
@@ -86,7 +91,13 @@ and the pywin32 module (https://pypi.org/project/pywin32/)
 
 ##### SEARCH_FILTERS
 
-> A dict of **SearchFilter** instances mapped to keywords for searching groups, computers, public folders, organizational units or users.
+> A dict of **SearchFilter** instances mapped to the following keywords:
+> * ```'computer'``` for searching computers by ```cn```
+> * ```'group'``` for searching groups by ```cn```
+> * ```'ou'``` for searching organizational units by ```ou```
+> * ```'public_folder'``` for searching public folders by ```displayName```
+> * ```'userid'``` for searching users by ```sAMAccountName```
+
 
 ### Classes
 
@@ -109,8 +120,46 @@ An **UnsignedIntegerMapping** subclass for bitmasks mapped to flag names
 > Returns a set of all flag names for the bitmasks matching the given number.
 
 
+#### Recordset(_record_)
 
-_(tba: PathComponent, RecordSet)_
+Wrapper around an ADO recordset as documented at
+https://docs.microsoft.com/windows/win32/adsi/searching-with-activex-data-objects-ado
+
+##### .query(_query\_string, \*\*kwargs_)
+
+> _Classmethod_ that executes an Active Directory query over a cached connection
+> (provided by the **connection()** helper function, see source code)
+> and returns an iterator over **RecordSet** instances for each found result.
+
+> The query may be parameterized using keyword arguments.
+> Underscores in the keywords will be replaced by spaces.
+
+> The following parametrs are preset for the query but may be overridden:
+> * Asynchronous=True
+> * Timeout=1
+
+##### .dump_fields()
+
+> Returns an iterator over the recordset fields as (fname, value) tuples
+
+
+#### PathComponent(_keyword, value_)
+
+Instances of this class represent a single component of an LDAP path, eg ```'cn=Users'```.
+They are initialized with a keyword and a value, in this example: ```'cn'``` and ```'Users'```.
+
+##### .keyword
+
+> The keyword
+
+##### .value
+
+> The value
+
+##### .from_string(string)
+
+> _Constructor (class)method_, returns an **PathComponent** instance built from keyword and value determined by splitting _string_ at a non-escaped equals sign (```=```).
+
 
 #### LdapPath(_\*parts_)
 
@@ -119,7 +168,7 @@ They are initialized using the provided parts, which can be strings or **PathCom
 
 ##### .components
 
-> The compoents of the path (a tuple of **PathComponent** instances)
+> The components of the path (a tuple of **PathComponent** instances)
 
 ##### .rdn
 
@@ -131,11 +180,19 @@ They are initialized using the provided parts, which can be strings or **PathCom
 
 ##### .from_string(string)
 
-> _Constructor (class)method_, returns an **LdapPath** instance built from the provided _string_ splitted by non-escaped commas (```,```).
+> _Constructor (class)method_, returns an **LdapPath** instance built from the provided _string_ splitted at all non-escaped commas (```,```).
+
 
 #### SearchFilter(_primary\_key\_name, \*\*fixed_parameters_)
 
 Instances of this class hold a primary key name and a mapping of fixed parameters for an LDAP search.
+
+##### .execute_query(_ldap\_path, \*args, \*\*kwargs_)
+
+> Return an interator from the result of an LDAP query
+> (using the **RecordSet.query()** class method)
+> starting at the URL of the provided **LdapPath** instance,
+> using SQL syntax with the WHERE clause genarated by **.where_clause()** method.
 
 ##### .where_clause(_\*args, \*\*kwargs_)
 
@@ -145,13 +202,6 @@ Instances of this class hold a primary key name and a mapping of fixed parameter
 > The stored fixed parameters override the provided keyword arguments.
 > If a _\_primary\_key\__ keyword was provided, its value is
 > built into the clause using the stored primary key name.
-
-##### .execute_query(_ldap\_path, \*args, \*\*kwargs_)
-
-> Return an interator from the result of an LDAP query
-> (using the **RecordSet.query()** class method)
-> starting at the URL of the provided **LdapPath** instance,
-> using SQL syntax with the WHERE clause genarated by **.where_clause()** method.
 
 
 #### LdapEntry(_com\_object_)
@@ -172,6 +222,11 @@ or (in the case of suitable property names) via attribute access using ._propert
 
 > An **LdapPath** instance from the _ADsPath_ property
 
+##### .child(_single\_path\_component_)
+
+> Returns an **LdapEntry** subclass instance for a relative child of this instance.
+> Its path is determined by prepending the _single\_path\_component_ to this instance's path. 
+
 ##### .items()
 
 > Returns an iterator over the property names and their values as dict items
@@ -182,24 +237,32 @@ or (in the case of suitable property names) via attribute access using ._propert
 > Prints a case-sensitive (i.e. uppercase before lowercase) alphabetically sorted dump
 > of non-empty properties.
 
-##### .child(_single\_path\_component_)
-
-> Returns an **LdapEntry** subclass instance for a relative child of this instance.
-> Its path is determined by prepending the _single\_path\_component_ to this instance's path. 
-
 
 #### User(_com\_object_)
 
 **LdapEntry** subclass for Active Directory users
 
+Interesting properties include:
+* sAMAccountName - the user ID
+* givenName - the first name
+* sn - the last name
+* title - eg a PhD
+* manager - the user's direct boss (distinguished name)
+* memberOf - all groups the user is a direct member of (a tuple of distinguished names)
++ userAccountControl - originally a number, but resolved to a set of flag names from **USER_ACCOUNT_CONTROL**
+
 ##### .account_disabled
 
-> ```True``` if the account is disabled, ```False``` if it is active.
+> ```True``` if the account is disabled, ```False``` if it is active.  
 
 
 #### Group(_com\_object_)
 
 **LdapEntry** subclass for Active Directory groups
+
+Interesting properties include:
+* member - all direct members (users and groups, a tuple of distinguished names)
+* memberOf - all groups this group is a direct member of (a tuple of distinguished names)
 
 ##### .walk()
 
@@ -219,14 +282,26 @@ or (in the case of suitable property names) via attribute access using ._propert
 ##### .find(_\*args, \*\*kwargs_)
 
 > Returns an **LdapEntry** subclass instance made from the first found LDAP entry
-> from an LDAP search starting at this instance's path,
-> or None if nothing was found. 
+> from an LDAP search using **.search()**, or None if nothing was found.
+
+> If the positional arguments (_\*args_) do not contain valid conditions
+> for the query's ```WHERE``` clause,
+> the **RecordSet.query()** method execting the query will return a ValueError
+> and display the faulty query string.
 
 ##### .find_user(_\*args, \*\*kwargs_)
 
 > Returns a **User** instance made from the first found LDAP entry
-> from an LDAP search starting at this instance's path,
-> or None if nothing was found. 
+> from an LDAP search using **.search()**, or None if nothing was found.
+
+> In contrary to the **.find()** method above, the first positional argument
+> - if any are provided - is treated differently:  
+> It is matched against ```sAMAccountName```, ```displayName```, ```cn```
+> by building suitable conditions joined by ```'OR'``` into the query's ```WHERE``` clause.
+> Remaining positional arguments are treated as in **.find()**.
+
+> The _search\_filter_ agrument for **.search()** is set to the
+> user search filter (**SEARCH_FILTER\['userid'\]**).
 
 ##### .search(_\*args, active=None, search\_filter=None, \*\*kwargs_)
 
@@ -238,8 +313,11 @@ or (in the case of suitable property names) via attribute access using ._propert
 
 > If _search_filter_ is set to a SearchFilter instance,
 > this method uses that instance to search the Active Directory.
-> Else, it determines which SearchFilter instance to use
-> from the **SEARCH_FILTERS** mapping.
+> Else, if a keyword matching any of the **(SEARCH_FILTERS)[#SEARCH_FILTERS]** keys
+> was provided, that search filter is used with this keyword's value
+> specified as the _\_primary\_key\__ keyword's value.  
+> In all other cases, an empty search filter
+> will be instantiated and used.
 
 
 #### DomainDNS(_com\_object_)
@@ -279,16 +357,25 @@ or (in the case of suitable property names) via attribute access using ._propert
 > from an LDAP search starting at the active Directory root's path,
 > or None if nothing was found.
 
+> See the documentation of the (**OrganizationalUnit**)[#OrganizationalUnitcom_object]'s method
+> for the treatment of arguments and keyword arguments.
+
 #### find_user(_\*args, \*\*kwargs_)
 
 > Returns a **User** instance made from the first found LDAP entry
 > from an LDAP search starting at the active Directory root's path,
 > or None if nothing was found.
 
+> See the documentation of the (**OrganizationalUnit**)[#OrganizationalUnitcom_object]'s method
+> for the treatment of arguments and keyword arguments.
+
 #### search(_\*args, \*\*kwargs_)
 
 > Returns an iterator over all found LDAP paths
 > from an LDAP search starting at the active Directory root's path.
+
+> See the documentation of the (**OrganizationalUnit**)[#OrganizationalUnitcom_object]'s method
+> for the treatment of arguments and keyword arguments.
 
 #### search_explicit(_query\_string_)
 
