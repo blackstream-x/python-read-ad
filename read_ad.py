@@ -556,7 +556,6 @@ class LdapEntry:
     factory function.
     """
 
-    additional_conversions = {}
     property_adspath = 'ADsPath'
     property_ntsecuritydescriptor = 'nTSecurityDescriptor'
     property_guid = 'GUID'
@@ -564,6 +563,32 @@ class LdapEntry:
     ignore_properties = {property_ntsecuritydescriptor}
     additional_properties = {
         property_adspath, property_guid, property_parent}
+    conversions = dict(
+        accountExpires=convert_to_datetime,
+        badPasswordTime=convert_to_datetime,
+        creationTime=convert_to_datetime,
+        dSASignature=convert_to_hex,
+        forceLogoff=convert_to_datetime,
+        groupType=GROUP_TYPES.get_flag_names,
+        lastLogoff=convert_to_datetime,
+        lastLogon=convert_to_datetime,
+        lastLogonTimestamp=convert_to_datetime,
+        lockoutDuration=convert_to_datetime,
+        lockoutObservationWindow=convert_to_datetime,
+        lockoutTime=convert_to_datetime,
+        maxPwdAge=convert_to_datetime,
+        minPwdAge=convert_to_datetime,
+        modifiedCountAtLastProm=convert_to_datetime,
+        modifiedCount=convert_to_datetime,
+        msExchMailboxGuid=convert_to_guid,
+        objectGUID=convert_to_guid,
+        objectSid=convert_to_sid,
+        pwdLastSet=convert_to_datetime,
+        replicationSignature=convert_to_hex,
+        sAMAccountType=SAM_ACCOUNT_TYPES.get_name,
+        userAccountControl=USER_ACCOUNT_CONTROL.get_flag_names,
+        uSNChanged=convert_to_datetime,
+        uSNCreated=convert_to_datetime)
 
     def __init__(self, com_object):
         """Store properties form the provided COM object.
@@ -578,12 +603,6 @@ class LdapEntry:
             | set(schema.OptionalProperties)
             | self.additional_properties
             if single_property not in self.ignore_properties)
-        conversions = dict(
-            objectGUID=convert_to_guid,
-            uSNChanged=convert_to_datetime,
-            uSNCreated=convert_to_datetime,
-            replicationSignature=convert_to_hex)
-        conversions.update(self.additional_conversions)
         self.__case_translation = dict()
         self.__property_cache = dict()
         self.__empty_properties = set()
@@ -600,7 +619,7 @@ class LdapEntry:
                 continue
             #
             try:
-                com_property = conversions[name](com_property)
+                com_property = self.conversions[name](com_property)
             except KeyError:
                 pass
             #
@@ -707,19 +726,6 @@ class User(LdapEntry):
     (account_disabled)
     """
 
-    additional_conversions = dict(
-        accountExpires=convert_to_datetime,
-        badPasswordTime=convert_to_datetime,
-        lastLogoff=convert_to_datetime,
-        lastLogon=convert_to_datetime,
-        lastLogonTimestamp=convert_to_datetime,
-        lockoutTime=convert_to_datetime,
-        msExchMailboxGuid=convert_to_guid,
-        objectSid=convert_to_sid,
-        pwdLastSet=convert_to_datetime,
-        sAMAccountType=SAM_ACCOUNT_TYPES.get_name,
-        userAccountControl=USER_ACCOUNT_CONTROL.get_flag_names)
-
     @property
     def account_disabled(self):
         """Return True if the account is disabled"""
@@ -729,11 +735,6 @@ class User(LdapEntry):
 class Group(LdapEntry):
 
     """Active Directory group"""
-
-    additional_conversions = dict(
-        groupType=GROUP_TYPES.get_flag_names,
-        objectSid=convert_to_sid,
-        sAMAccountType=SAM_ACCOUNT_TYPES.get_name)
 
     def walk(self):
         """Yield a tuple of (self, subgroups_list, users_list)
@@ -765,16 +766,7 @@ class Computer(LdapEntry):
 
     """Active Directory computer"""
 
-    additional_conversions = dict(
-        accountExpires=convert_to_datetime,
-        badPasswordTime=convert_to_datetime,
-        lastLogoff=convert_to_datetime,
-        lastLogon=convert_to_datetime,
-        lastLogonTimestamp=convert_to_datetime,
-        objectSid=convert_to_sid,
-        pwdLastSet=convert_to_datetime,
-        sAMAccountType=SAM_ACCOUNT_TYPES.get_name,
-        userAccountControl=USER_ACCOUNT_CONTROL.get_flag_names)
+    ...
 
 
 class OrganizationalUnit(LdapEntry):
@@ -869,17 +861,7 @@ class DomainDNS(OrganizationalUnit):
 
     """Active Directory Domain DNS"""
 
-    additional_conversions = dict(
-        creationTime=convert_to_datetime,
-        dSASignature=convert_to_hex,
-        forceLogoff=convert_to_datetime,
-        lockoutDuration=convert_to_datetime,
-        lockoutObservationWindow=convert_to_datetime,
-        maxPwdAge=convert_to_datetime,
-        minPwdAge=convert_to_datetime,
-        modifiedCount=convert_to_datetime,
-        modifiedCountAtLastProm=convert_to_datetime,
-        objectSid=convert_to_sid)
+    ...
 
 
 class PublicFolder(LdapEntry):
