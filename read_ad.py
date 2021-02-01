@@ -573,13 +573,8 @@ class LdapEntry:
     factory function.
     """
 
-    property_adspath = 'ADsPath'
-    property_ntsecuritydescriptor = 'nTSecurityDescriptor'
-    property_guid = 'GUID'
-    property_parent = 'Parent'
-    ignore_properties = {property_ntsecuritydescriptor}
-    additional_properties = {
-        property_adspath, property_guid, property_parent}
+    additional_properties = {'ADsPath'}
+    ignore_properties = {'nTSecurityDescriptor'}
     conversions = dict(
         accountExpires=Convert.to_datetime,
         ADsPath=LdapPath.from_string,
@@ -615,6 +610,8 @@ class LdapEntry:
         The property names are determined from the schema,
         plus the required (cls.)additional_properties,
         minus the preformance-degrading (cls.)ignore_properties.
+        Additionally, properties that still are COM objects itself
+        or memoryviews after the conversion will be ignored.
         """
         schema = win32com.client.GetObject(com_object.Schema)
         property_names = tuple(
@@ -653,18 +650,13 @@ class LdapEntry:
         return sorted(self.__empty_properties)
 
     @property
-    def parent(self):
-        """Return this object's parent LDAP entry"""
-        return produce_entry(self[self.property_parent])
-
-    @property
     def ldap_url(self):
         """Return the LDAP URL of the entry"""
-        return self[self.property_adspath].url
+        return self.ADsPath.url
 
     def __add_property(self, name, value):
         """Add a property value only if it is not a
-        COM_Object or a memoryview (or a collection of those)
+        COM Object or a memoryview (or a collection of those)
         """
         if isinstance(value, (list, tuple)):
             if value and isinstance(
@@ -679,14 +671,12 @@ class LdapEntry:
     def child(self, single_path_cmponent):
         """Return the relative child of this entry.
         The relative_path must be a single LDAP path component.
-        It is inserted into this entry's LDAP path to make a coherent
-        LDAP path for a child entry, eg:
-
-        users = root.child('cn=Users')
+        It is prepended to this entry's LDAP path
+        to make a coherent LDAP path for a child entry.
         """
         return produce_entry(
             LdapPath(single_path_cmponent,
-                     *self[self.property_adspath].components))
+                     *self.self.ADsPath.components))
 
     def print_dump(self):
         """Print all non-empty properties in
@@ -700,7 +690,7 @@ class LdapEntry:
 
     def __eq__(self, other):
         """Compare the GUIDs"""
-        return self[self.property_guid] == other[self.property_guid]
+        return self.objectGUID == other.objectGUID
 
     def __getattr__(self, name):
         """Instance attribute access to the com object's properties
@@ -730,24 +720,23 @@ class LdapEntry:
 
     def __hash__(self):
         """Identify by the GUID"""
-        return hash(self[self.property_guid])
+        return hash(self.objectGUID)
 
     def __repr__(self):
         """Return a representation with the class name
         and the path
         """
-        return "<%s: %s>" % (
-            self.__class__.__name__, str(self[self.property_adspath]))
+        return "<%s: %s>" % (self.__class__.__name__, str(self.ADsPath))
 
     def __str__(self):
         """Return the path"""
-        return str(self[self.property_adspath])
+        return str(self.ADsPath)
 
 
 class User(LdapEntry):
 
-    """Active Directory user with an additional bool property
-    (account_disabled)
+    """Active Directory user with an additional
+    convenience bool property (account_disabled)
     """
 
     @property
