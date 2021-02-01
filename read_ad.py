@@ -12,8 +12,8 @@ Based on original version 0.6.7 by Tim Golden
 with a few cherry-picks from the current implementation
 (<https://github.com/tjguk/active_directory/blob/master/active_directory.py>)
 
-Rewrite for Python3 with minimized dependencies
-by Rainer Schwarzbach, 2021-01-28
+Rewrite for Python 3 with minimized dependencies
+by Rainer Schwarzbach, 2021-02-01
 
 License: MIT
 
@@ -74,8 +74,8 @@ def connection():
 def signed_to_unsigned(number):
     """Convert a signed integer to an unsigned one,
     adapted from the current upstream implementation
-    <https://github.com/tjguk/active_directory/
-     blob/master/active_directory.py>
+    <https://github.com
+     /tjguk/active_directory/blob/master/active_directory.py>
     """
     if number >= 0:
         return number
@@ -88,7 +88,8 @@ def convert_to_datetime(ad_time):
 
     numeric_date is the number of 100-nanosecond intervals
     since 12:00 AM January 1, 1601, see
-    <https://ldapwiki.com/wiki/LargeInteger#section-LargeInteger-NumericDate>
+    <https://ldapwiki.com
+     /wiki/LargeInteger#section-LargeInteger-NumericDate>
 
     Return 'never' for dates with a high part of 0x7fffffff.
     If the time still exceeds the python datetime range,
@@ -268,8 +269,8 @@ USER_ACCOUNT_CONTROL = FlagsMapping(
 class RecordSet():
 
     """Simple wrapper around an ADO Recordset, see
-    <https://docs.microsoft.com/windows/win32/adsi
-     /searching-with-activex-data-objects-ado>
+    <https://docs.microsoft.com
+     /windows/win32/adsi/searching-with-activex-data-objects-ado>
     """
 
     search_properties = dict(
@@ -491,14 +492,14 @@ class SearchFilter:
         self.__primary_key_name = primary_key_name
         self.__fixed_parameters = fixed_parameters
 
-    def execute_query(self, ldap_path, *args, **kwargs):
+    def execute_query(self, ldap_url, *args, **kwargs):
         """Build an SQL statement and execute a query
-        from the provided LDAP path.
+        starting at the provided LDAP url.
         Yield RecordSet objects.
         """
         sql_statement = '\n'.join([
             'SELECT ADsPath, userAccountControl',
-            'FROM %r' % ldap_path.url,
+            'FROM %r' % ldap_url,
             self.where_clause(*args, **kwargs)])
         for result in RecordSet.query(sql_statement):
             yield result
@@ -565,6 +566,7 @@ class LdapEntry:
         property_adspath, property_guid, property_parent}
     conversions = dict(
         accountExpires=convert_to_datetime,
+        ADsPath=LdapPath.from_string,
         badPasswordTime=convert_to_datetime,
         creationTime=convert_to_datetime,
         dSASignature=convert_to_hex,
@@ -638,9 +640,9 @@ class LdapEntry:
         return produce_entry(self[self.property_parent])
 
     @property
-    def path(self):
-        """Return the COM object's ADsPath"""
-        return LdapPath.from_string(self[self.property_adspath])
+    def ldap_url(self):
+        """Return the LDAP URL of the entry"""
+        return self[self.property_adspath].url
 
     def __add_property(self, name, value):
         """Add a property value only if it is not a
@@ -657,13 +659,16 @@ class LdapEntry:
         #
 
     def child(self, single_path_cmponent):
-        """Return the relative child of this entry. The relative_path
-        is inserted into this entry's LDAP path to make a coherent
+        """Return the relative child of this entry.
+        The relative path must be a single LDAP path component.
+        It is inserted into this entry's LDAP path to make a coherent
         LDAP path for a child entry, eg:
 
         users = root.child('cn=Users')
         """
-        return produce_entry(LdapPath(single_path_cmponent, *self.path))
+        return produce_entry(
+            LdapPath(single_path_cmponent,
+                     *self[self.property_adspath].components))
 
     def print_dump(self):
         """Print all non-empty properties in
@@ -713,11 +718,12 @@ class LdapEntry:
         """Return a representation with the class name
         and the path
         """
-        return "<%s: %s>" % (self.__class__.__name__, str(self.path))
+        return "<%s: %s>" % (
+            self.__class__.__name__, str(self[self.property_adspath]))
 
     def __str__(self):
         """Return the path"""
-        return str(self.path)
+        return str(self[self.property_adspath])
 
 
 class User(LdapEntry):
@@ -762,115 +768,6 @@ class Group(LdapEntry):
         #
 
 
-class Computer(LdapEntry):
-
-    """Active Directory computer"""
-
-    ...
-
-
-class OrganizationalUnit(LdapEntry):
-
-    """Active Directory Organisational unit"""
-
-    user_search_fields = ('sAMAccountName', 'displayName', 'cn')
-
-    def find(self, *args, **kwargs):
-        """Return an LdapEntry for the first matching
-        search result.
-        """
-        for found_path in self.search(*args, **kwargs):
-            return produce_entry(found_path)
-        #
-        return None
-
-    def find_user(self, *args, **kwargs):
-        """Return a User object for the first matching
-        search result.
-        """
-        args_list = list(args)
-        try:
-            name = args_list.pop(0)
-        except IndexError:
-            pass
-        else:
-            user_search = []
-            for field_name in self.user_search_fields:
-                if field_name not in kwargs:
-                    user_search.append('%s=%r' % (field_name, str(name)))
-                #
-            #
-            if user_search:
-                args_list = [' OR '.join(user_search)] + args_list
-            #
-        #
-        for found_path in self.search(
-                *args_list, search_filter=SEARCH_FILTERS['userid'], **kwargs):
-            return produce_entry(found_path)
-        #
-
-    def search(self, *args, active=None, search_filter=None, **kwargs):
-        """Yield LDAP paths (plain strings) for all found Entries.
-
-        If 'active' is set to True or False explicitly,
-        yield the path only if the userAccountControl
-        property value matches the desired state.
-
-        if 'search_filter' is not set, determine a search filter
-        automatically.
-        """
-        if not isinstance(search_filter, SearchFilter):
-            for (keyword, candidate) in SEARCH_FILTERS.items():
-                try:
-                    value = kwargs.pop(keyword)
-                except KeyError:
-                    continue
-                #
-                kwargs['_primary_key_'] = value
-                search_filter = candidate
-                break
-            else:
-                search_filter = SearchFilter(None)
-            #
-        #
-        if active is None:
-            for result in search_filter.execute_query(
-                    self.path, *args, **kwargs):
-                yield result.ADsPath
-            #
-            return
-        #
-        bitmask = USER_ACCOUNT_CONTROL['ADS_UF_ACCOUNTDISABLE']
-        desired_state = bitmask
-        if active:
-            desired_state = 0
-        #
-        for result in search_filter.execute_query(self.path, *args, **kwargs):
-            try:
-                if result.userAccountControl & bitmask == desired_state:
-                    yield result.ADsPath
-                #
-            except TypeError:
-                # no userAccountControl property
-                yield result.ADsPath
-            #
-        #
-
-
-class DomainDNS(OrganizationalUnit):
-
-    """Active Directory Domain DNS"""
-
-    ...
-
-
-class PublicFolder(LdapEntry):
-
-    """Active Directory public folder"""
-
-    ...
-
-
 #
 # Module-level functions
 #
@@ -897,17 +794,14 @@ def produce_entry(ldap_path, lazy=True):
         #
     #
     object_class_lower = com_object.Class.lower()
-    for ldap_entry_class in (
-            User, Group, DomainDNS,
-            OrganizationalUnit, Computer, PublicFolder):
-        if ldap_entry_class.__name__.lower() == object_class_lower:
+    for ldap_entry_subclass in (User, Group):
+        if ldap_entry_subclass.__name__.lower() == object_class_lower:
             return GLOBAL_CACHE.setdefault(ldap_path.url,
-                                           ldap_entry_class(com_object))
+                                           ldap_entry_subclass(com_object))
         #
     #
-    raise ValueError(
-        'Problem with object %s: No matching class %r found' % (
-            com_object, object_class_lower))
+    return GLOBAL_CACHE.setdefault(ldap_path.url,
+                                   LdapEntry(com_object))
 
 
 def root(server=None):
@@ -930,25 +824,101 @@ def root(server=None):
     #
 
 
-def find(*args, **kwargs):
-    """Find an LDAP entry.
-    Determine the type by the keyword argument.
-    Find a user using the keywords if no other entry type
-    could be determined.
+def search(*args,
+           active=None,
+           search_base=None,
+           search_filter=None,
+           **kwargs):
+    """Yield LDAP paths (plain strings) for all found entries.
+    Search starts at the LDAP URL specified in 'search_base'.
+    If that is not set, search from the  Active Directory root.
+
+    If 'active' is set to True or False explicitly,
+    yield the path only if the userAccountControl
+    property value matches the desired state.
+
+    if 'search_filter' is not set, determine a search filter
+    automatically.
     """
-    return root().find(*args, **kwargs)
+    if not isinstance(search_filter, SearchFilter):
+        for (keyword, candidate) in SEARCH_FILTERS.items():
+            try:
+                value = kwargs.pop(keyword)
+            except KeyError:
+                continue
+            #
+            kwargs['_primary_key_'] = value
+            search_filter = candidate
+            break
+        else:
+            search_filter = SearchFilter(None)
+        #
+    #
+    if not search_base:
+        search_base = root().ldap_url
+    #
+    query_results = search_filter.execute_query(search_base, *args, **kwargs)
+    if active is None:
+        for result in query_results:
+            yield result.ADsPath
+        #
+        return
+    #
+    bitmask = USER_ACCOUNT_CONTROL['ADS_UF_ACCOUNTDISABLE']
+    desired_state = bitmask
+    if active:
+        desired_state = 0
+    #
+    for result in query_results:
+        try:
+            if result.userAccountControl & bitmask == desired_state:
+                yield result.ADsPath
+            #
+        except TypeError:
+            # no userAccountControl property
+            yield result.ADsPath
+        #
+    #
 
 
-def find_user(*args, **kwargs):
+def search_users(*args, **kwargs):
+    """Yield LDAP paths (plain strings) for all found users."""
+    args_list = list(args)
+    try:
+        name = args_list.pop(0)
+    except IndexError:
+        pass
+    else:
+        user_search = []
+        for field_name in ('sAMAccountName', 'displayName', 'cn'):
+            if field_name not in kwargs:
+                user_search.append('%s=%r' % (field_name, str(name)))
+            #
+        #
+        if user_search:
+            args_list = [' OR '.join(user_search)] + args_list
+        #
+    #
+    kwargs['search_filter'] = SEARCH_FILTERS['userid']
+    return search(*args_list, **kwargs)
+
+
+def get_first_entry(*args, **kwargs):
+    """Return the LDAP entry for the first found match."""
+    for found_path in search(*args, **kwargs):
+        return produce_entry(found_path)
+    #
+    return None
+
+
+def get_first_user(*args, **kwargs):
     """Find a user by name or other properties
     from the cached root entry
     """
-    return root().find_user(*args, **kwargs)
-
-
-def search(*args, **kwargs):
-    """Search from the cached root entry"""
-    return root().search(*args, **kwargs)
+    for found_path in search_users(*args, **kwargs):
+        return produce_entry(found_path)
+    #
+    return None
 
 
 # vim: fileencoding=utf-8 ts=4 sts=4 sw=4 autoindent expandtab syntax=python:
