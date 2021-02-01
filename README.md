@@ -20,20 +20,6 @@ version of the original, hosted at https://github.com/tjguk/active_directory.
 
 ### Constants / Global Variables
 
-#### Handling Active Directory times ####
-
-##### BASE_TIME
-
-> A datetime.datetime instance with a value of ```1601-01-01T00:00:00```, the base date of all Active Directory times.
-
-##### TIME_NEVER_HIGH_PART
-
-> ```0x7fffffff``` - the high 32 bit part of the Active Directory timestanp reserved for "never".  
-
-##### TIME_NEVER_KEYWORD
-
-> ```'<never>'``` - a textual replacement for an Active Directory "never" time.
-
 #### Constants for ADO/COM access ###
 
 ##### ADO_COMMAND
@@ -187,18 +173,18 @@ They are initialized using the provided parts, which can be strings or **PathCom
 
 Instances of this class hold a primary key name and a mapping of fixed parameters for an LDAP search.
 
-##### .execute_query(_ldap\_path, \*args, \*\*kwargs_)
+##### .execute_query(_ldap\_url, \*args, \*\*kwargs_)
 
 > Return an interator from the result of an LDAP query
 > (using the **RecordSet.query()** class method)
-> starting at the URL of the provided **LdapPath** instance,
-> using SQL syntax with the WHERE clause genarated by **.where_clause()** method.
+> starting at _ldap\_url_ and using SQL syntax with the 
+> ```WHERE``` clause genarated by the **.where_clause()** method.
 
 ##### .where_clause(_\*args, \*\*kwargs_)
 
 > Return a ```WHERE``` clause for an SQL-like LDAP query string,
 > built from the provided positional and keyword arguments,
-> all concatenated unsing ```AND```.  
+> all concatenated using ```AND```.  
 > The stored fixed parameters override the provided keyword arguments.
 > If a _\_primary\_key\__ keyword was provided, its value is
 > built into the clause using the stored primary key name.
@@ -212,7 +198,7 @@ or (in the case of suitable property names) via attribute access using ._propert
 
 This is the base class for objects from the Active Directory.
 
-All **LdapPath** subclasses instances should be instantiated 
+All **LdapPath** and subclasses instances should be instantiated 
 by using the **produce\_entry()** function below.
 
 ##### .empty\_properties
@@ -221,11 +207,11 @@ by using the **produce\_entry()** function below.
 
 ##### .parent
 
-> An **LdapEntry** subclass instance of the current entry's parent
+> An **LdapEntry** or subclass instance of the current entry's parent.
 
-##### .path
+##### .ldap_url
 
-> An **LdapPath** instance from the _ADsPath_ property
+> The LDAP URL of the entry.
 
 ##### .child(_single\_path\_component_)
 
@@ -275,73 +261,13 @@ Interesting properties include:
 > _2._ a list of member **Group** instances and _3._ a list of member **User** instances.
 
 
-#### Computer(_com\_object_)
-
-**LdapEntry** subclass for Active Directory computers
-
-
-#### OrganizationalUnit(_com\_object_)
-
-**LdapEntry** subclass for Active Directory organizational units, supporting searches 
-
-##### .find(_\*args, \*\*kwargs_)
-
-> Returns an **LdapEntry** subclass instance made from the first found LDAP entry
-> from an LDAP search using **.search()**, or None if nothing was found.
-
-> If the positional arguments (_\*args_) do not contain valid conditions
-> for the query's ```WHERE``` clause,
-> the **RecordSet.query()** method execting the query will return a ValueError
-> and display the faulty query string.
-
-##### .find_user(_\*args, \*\*kwargs_)
-
-> Returns a **User** instance made from the first found LDAP entry
-> from an LDAP search using **.search()**, or None if nothing was found.
-
-> In contrary to the **.find()** method above, the first
-> positional argument - if any are provided - is treated differently:  
-> It is matched against each one of ```sAMAccountName```, ```displayName``` and ```cn```
-> by building suitable conditions joined by ```'OR'``` into the query's ```WHERE``` clause.
-> Remaining positional arguments are treated as in **.find()**.
-
-> The _search\_filter_ argument for **.search()** is set to the
-> user search filter (**SEARCH_FILTER\[**```'userid'```**\]**).
-
-##### .search(_\*args, active=None, search\_filter=None, \*\*kwargs_)
-
-> Returns an iterator over all found LDAP paths
-> from an LDAP search starting at this instance's path.
-
-> If _active_ is set to ```True``` or ```False``` explicitly, the method returns only
-> the paths of active (or deactivated) matching entries. 
-
-> If _search_filter_ is set to a SearchFilter instance,
-> this method uses that instance to search the Active Directory.
-> Else, if a keyword matching any of the **SEARCH_FILTERS** keys
-> was provided, that search filter is used with this keyword's value
-> specified as the _\_primary\_key\__ keyword's value.  
-> In all other cases, an empty search filter
-> will be instantiated and used.
-
-
-#### DomainDNS(_com\_object_)
-
-**OrganizationalUnit** subclass for the Active Directory domain DNS
-
-
-#### PublicFolder(_com\_object_)
-
-**LdapEntry** subclass for Active Directory public folders
-
-
 ### Public interface functions
 
 #### produce_entry(_ldap\_path, lazy=True_)
 
-> **LdapEntry** subclass factory function.
+> **LdapEntry** and subclasses factory function.
 
-> Determines the suitable **LdapEntry** subclass from the
+> Determines the suitable class out of **LdapEntry**, **User** or **Group** from the
 > COM object found at the LDAP URL.
 > Generates an instance of this class from the COM object,
 > stores it in **GLOBAL_CACHE** (associated to the LDAP path URL),
@@ -360,31 +286,48 @@ Interesting properties include:
 > Returns the (cached) **DomainDNS** instance referring to the
 > root of the logged-on Active Directory tree.
 
-#### find(_\*args, \*\*kwargs_)
-
-> Returns an **LdapEntry** subclass instance made from the first found LDAP entry
-> from an LDAP search starting at the active Directory root's path,
-> or None if nothing was found.
-
-> See the documentation of the **OrganizationalUnit**'s method
-> for the treatment of arguments and keyword arguments.
-
-#### find_user(_\*args, \*\*kwargs_)
-
-> Returns a **User** instance made from the first found LDAP entry
-> from an LDAP search starting at the active Directory root's path,
-> or None if nothing was found.
-
-> See the documentation of the **OrganizationalUnit**'s method
-> for the treatment of arguments and keyword arguments.
-
-#### search(_\*args, \*\*kwargs_)
+#### search(_\*args, active=None, search\_base=None, search\_filter=None, \*\*kwargs_)
 
 > Returns an iterator over all found LDAP paths
-> from an LDAP search starting at the active Directory root's path.
+> from an LDAP search starting at the LDAP URL specified as _search\_base_.
+> If _search\_base_ is not given, the LDAP search starts at the LDAP URL of root().
 
-> See the documentation of the **OrganizationalUnit**'s method
-> for the treatment of arguments and keyword arguments.
+> If _active_ is set to ```True``` or ```False``` explicitly, the method returns only
+> the paths of active (or deactivated) matching entries. 
+
+> If _search_filter_ is set to a SearchFilter instance,
+> this method uses that instance to search the Active Directory.
+> Else, if a keyword matching any of the **SEARCH_FILTERS** keys
+> was provided, that search filter is used with this keyword's value
+> specified as the _\_primary\_key\__ keyword's value.  
+> In all other cases, an empty search filter
+> will be instantiated and used.
+
+> If positional arguments (_\*args_) were provided and any of them
+> does not contain a valid condition for the query's ```WHERE``` clause,
+> the **RecordSet.query()** method execting the query will return a ValueError
+> and display the faulty query string.
+
+#### search_user(_\*args, \*\*kwargs_)
+
+> Returns an iterator over all found LDAP paths like the **search()** function above,
+> but uses the user search filter (**SEARCH_FILTER\[**```'userid'```**\]** unconditionally.
+
+> In contrary to plain **search()**, the first
+> positional argument - if any are provided - is treated differently from the rest:  
+> It is matched against each one of ```sAMAccountName```, ```displayName``` and ```cn```
+> by building suitable conditions joined by ```'OR'```.
+> The remaining positional arguments are treated normally.
+
+#### get_first_entry(_\*args, \*\*kwargs_)
+
+> Returns an **LdapEntry** or subclass instance made from the first found LDAP entry
+> from an LDAP search using **search()**, or None if nothing was found.
+
+#### get_first_user(_\*args, \*\*kwargs_)
+
+> Returns a **User** instance made from the first found LDAP entry
+> from an LDAP search using **search_user()**, or None if nothing was found.
 
 
 ## Examples
@@ -396,6 +339,6 @@ import read_ad
 
 # find your own user in active directory
 import getpass
-my_user = read_ad.find_user(getpass.getuser())
+my_user = read_ad.get_first_user(getpass.getuser())
 
 ```
