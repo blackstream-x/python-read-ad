@@ -205,10 +205,6 @@ by using the **produce\_entry()** function below.
 
 > A sorted list of the names of all properties having the value None.
 
-##### .parent
-
-> An **LdapEntry** or subclass instance of the current entry's parent.
-
 ##### .ldap_url
 
 > The LDAP URL of the entry.
@@ -308,10 +304,10 @@ Interesting properties include:
 > the **RecordSet.query()** method execting the query will return a ValueError
 > and display the faulty query string.
 
-#### search_user(_\*args, \*\*kwargs_)
+#### search_users(_\*args, \*\*kwargs_)
 
 > Returns an iterator over all found LDAP paths like the **search()** function above,
-> but uses the user search filter (**SEARCH_FILTER\[**```'userid'```**\]** unconditionally.
+> but uses the user search filter (**SEARCH_FILTER\[**```'userid'```**\]**) unconditionally.
 
 > In contrary to plain **search()**, the first
 > positional argument - if any are provided - is treated differently from the rest:  
@@ -327,7 +323,7 @@ Interesting properties include:
 #### get_first_user(_\*args, \*\*kwargs_)
 
 > Returns a **User** instance made from the first found LDAP entry
-> from an LDAP search using **search_user()**, or None if nothing was found.
+> from an LDAP search using **search_users()**, or None if nothing was found.
 
 
 ## Examples
