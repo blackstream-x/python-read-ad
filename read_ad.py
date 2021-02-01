@@ -12,7 +12,7 @@ Based on original version 0.6.7 by Tim Golden
 with a few cherry-picks from the current implementation
 (<https://github.com/tjguk/active_directory/blob/master/active_directory.py>)
 
-Rewrite for Python 3 with minimized dependencies
+Rewrite for Python3 with minimized dependencies
 by Rainer Schwarzbach, 2021-02-01
 
 License: MIT
@@ -33,10 +33,6 @@ import win32security
 # Global constants and cache
 #
 
-
-BASE_TIME = datetime.datetime(1601, 1, 1)
-TIME_NEVER_HIGH_PART = 0x7fffffff
-TIME_NEVER_KEYWORD = '<never>'
 
 ADO_COMMAND = 'ADODB.Command'
 ADO_CONNECTION = 'ADODB.Connection'
@@ -83,69 +79,89 @@ def signed_to_unsigned(number):
     return struct.unpack('L', struct.pack('l', number))[0]
 
 
-def convert_to_datetime(ad_time):
-    """Return a datetime from active directory.
-
-    numeric_date is the number of 100-nanosecond intervals
-    since 12:00 AM January 1, 1601, see
-    <https://ldapwiki.com
-     /wiki/LargeInteger#section-LargeInteger-NumericDate>
-
-    Return 'never' for dates with a high part of 0x7fffffff.
-    If the time still exceeds the python datetime range,
-    return the maximum supported datetime.
-    """
-    if ad_time is None:
-        return None
-    #
-    high_part, low_part = [signed_to_unsigned(part) for part in
-                           (ad_time.HighPart, ad_time.LowPart)]
-    if high_part == TIME_NEVER_HIGH_PART:
-        return TIME_NEVER_KEYWORD
-    #
-    numeric_date = (high_part << 32) + low_part
-    delta = datetime.timedelta(microseconds=numeric_date / 10)
-    try:
-        return BASE_TIME + delta
-    except OverflowError:
-        return datetime.datetime.max
-    #
-
-
-def convert_to_guid(item):
-    """Return a GUID from an LDAP entry's property"""
-    if item is None:
-        return None
-    #
-    guid = convert_to_hex(item)
-    slice_borders = (8, 12, 16, 20)
-    return '{%s}' % '-'.join(
-        guid[slice(*pair)]
-        for pair in zip((None, *slice_borders), (*slice_borders, None)))
-
-
-def convert_to_hex(item):
-    """Return a hexadecimal representation of binary data"""
-    if item is None:
-        return None
-    #
-    return ''.join('%02x' % (char & 0xff) for char in bytes(item))
-
-
-def convert_to_sid(item):
-    """Return a PySID from binary data"""
-    if item is None:
-        return None
-    #
-    return win32security.SID(bytes(item))
-
-
 #
 # Classes
 #
 
 
-class UnsignedIntegerMapping():
+class Convert:
+
+    """A collection of converter methods for LdapEntry properties"""
+
+    base_time = datetime.datetime(1601, 1, 1)
+    time_never_high_part = 0x7fffffff
+    time_never_keyword = '<never>'
+
+    @classmethod
+    def to_datetime(cls, ad_time):
+        """Return a datetime from active directory.
+
+        numeric_date is the number of 100-nanosecond intervals
+        since 12:00 AM January 1, 1601, see
+        <https://ldapwiki.com
+         /wiki/LargeInteger#section-LargeInteger-NumericDate>
+
+        Return '<never>' for dates with a high part of 0x7fffffff.
+        If the time still exceeds the python datetime range,
+        return the maximum supported datetime.
+        """
+        if ad_time is None:
+            return None
+        #
+        high_part, low_part = [signed_to_unsigned(part) for part in
+                               (ad_time.HighPart, ad_time.LowPart)]
+        if high_part == cls.time_never_high_part:
+            return cls.time_never_keyword
+        #
+        numeric_date = (high_part << 32) + low_part
+        delta = datetime.timedelta(microseconds=numeric_date / 10)
+        try:
+            return cls.base_time + delta
+        except OverflowError:
+            return datetime.datetime.max
+        #
+
+    @classmethod
+    def to_guid(cls, item):
+        """Return a GUID from an LDAP entry's property"""
+        if item is None:
+            return None
+        #
+        guid = cls.to_hex(item)
+        slice_borders = (8, 12, 16, 20)
+        return '{%s}' % '-'.join(
+            guid[slice(*pair)]
+            for pair in zip((None, *slice_borders), (*slice_borders, None)))
+
+    @staticmethod
+    def to_hex(item):
+        """Return a hexadecimal representation of binary data"""
+        if item is None:
+            return None
+        #
+        return ''.join('%02x' % (char & 0xff) for char in bytes(item))
+
+    @staticmethod
+    def to_sid(item):
+        """Return a PySID from binary data"""
+        if item is None:
+            return None
+        #
+        return win32security.SID(bytes(item))
+
+    @staticmethod
+    def to_tuple(item):
+        """Return a tuple from the item"""
+        if not item:
+            return tuple()
+        #
+        if isinstance(item, str):
+            return (item,)
+        #
+        return tuple(item)
+
+
+class UnsignedIntegerMapping:
 
     """Mapping of names to unsigned integer numbers
     supporting lookups in each direction
@@ -266,7 +282,7 @@ USER_ACCOUNT_CONTROL = FlagsMapping(
     ADS_UF_TRUSTED_TO_AUTHENTICATE_FOR_DELEGATION=0x01000000)
 
 
-class RecordSet():
+class RecordSet:
 
     """Simple wrapper around an ADO Recordset, see
     <https://docs.microsoft.com
@@ -565,32 +581,34 @@ class LdapEntry:
     additional_properties = {
         property_adspath, property_guid, property_parent}
     conversions = dict(
-        accountExpires=convert_to_datetime,
+        accountExpires=Convert.to_datetime,
         ADsPath=LdapPath.from_string,
-        badPasswordTime=convert_to_datetime,
-        creationTime=convert_to_datetime,
-        dSASignature=convert_to_hex,
-        forceLogoff=convert_to_datetime,
+        badPasswordTime=Convert.to_datetime,
+        creationTime=Convert.to_datetime,
+        dSASignature=Convert.to_hex,
+        forceLogoff=Convert.to_datetime,
         groupType=GROUP_TYPES.get_flag_names,
-        lastLogoff=convert_to_datetime,
-        lastLogon=convert_to_datetime,
-        lastLogonTimestamp=convert_to_datetime,
-        lockoutDuration=convert_to_datetime,
-        lockoutObservationWindow=convert_to_datetime,
-        lockoutTime=convert_to_datetime,
-        maxPwdAge=convert_to_datetime,
-        minPwdAge=convert_to_datetime,
-        modifiedCountAtLastProm=convert_to_datetime,
-        modifiedCount=convert_to_datetime,
-        msExchMailboxGuid=convert_to_guid,
-        objectGUID=convert_to_guid,
-        objectSid=convert_to_sid,
-        pwdLastSet=convert_to_datetime,
-        replicationSignature=convert_to_hex,
+        lastLogoff=Convert.to_datetime,
+        lastLogon=Convert.to_datetime,
+        lastLogonTimestamp=Convert.to_datetime,
+        lockoutDuration=Convert.to_datetime,
+        lockoutObservationWindow=Convert.to_datetime,
+        lockoutTime=Convert.to_datetime,
+        maxPwdAge=Convert.to_datetime,
+        member=Convert.to_tuple,
+        memberOf=Convert.to_tuple,
+        minPwdAge=Convert.to_datetime,
+        modifiedCountAtLastProm=Convert.to_datetime,
+        modifiedCount=Convert.to_datetime,
+        msExchMailboxGuid=Convert.to_guid,
+        objectGUID=Convert.to_guid,
+        objectSid=Convert.to_sid,
+        pwdLastSet=Convert.to_datetime,
+        replicationSignature=Convert.to_hex,
         sAMAccountType=SAM_ACCOUNT_TYPES.get_name,
         userAccountControl=USER_ACCOUNT_CONTROL.get_flag_names,
-        uSNChanged=convert_to_datetime,
-        uSNCreated=convert_to_datetime)
+        uSNChanged=Convert.to_datetime,
+        uSNCreated=Convert.to_datetime)
 
     def __init__(self, com_object):
         """Store properties form the provided COM object.
@@ -616,14 +634,14 @@ class LdapEntry:
                 continue
             #
             self.__case_translation[name.lower()] = name
-            if com_property is None:
-                self.__empty_properties.add(name)
-                continue
-            #
             try:
                 com_property = self.conversions[name](com_property)
             except KeyError:
                 pass
+            #
+            if com_property is None:
+                self.__empty_properties.add(name)
+                continue
             #
             self.__add_property(name, com_property)
         #
@@ -660,7 +678,7 @@ class LdapEntry:
 
     def child(self, single_path_cmponent):
         """Return the relative child of this entry.
-        The relative path must be a single LDAP path component.
+        The relative_path must be a single LDAP path component.
         It is inserted into this entry's LDAP path to make a coherent
         LDAP path for a child entry, eg:
 
@@ -746,13 +764,9 @@ class Group(LdapEntry):
         """Yield a tuple of (self, subgroups_list, users_list)
         and repeat that (recursively) for each subgroup.
         """
-        member_paths = self.member or []
-        if isinstance(member_paths, str):
-            member_paths = [member_paths]
-        #
         groups_list = []
         users_list = []
-        for single_path in member_paths:
+        for single_path in self.member:
             child_entry = produce_entry(single_path)
             if isinstance(child_entry, self.__class__):
                 groups_list.append(child_entry)
