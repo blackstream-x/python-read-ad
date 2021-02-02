@@ -196,14 +196,14 @@ Stores a subset of an LDAP entry's properties.
 The stored properties can be accessed via item access using \[_property\_name_\]
 or (in the case of suitable property names) via attribute access using ._property\_name_
 
-This is the base class for objects from the Active Directory.
+LDAP entry property names are case insensitive.
 
 All **LdapPath** and subclasses instances should be instantiated 
 by using the **produce\_entry()** function below.
 
 ##### .empty\_properties
 
-> A sorted list of the names of all properties having the value None.
+> A frozenset of the names of all properties having the value None.
 
 ##### .ldap_url
 
