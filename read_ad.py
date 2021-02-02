@@ -13,7 +13,7 @@ with a few cherry-picks from the current implementation
 (<https://github.com/tjguk/active_directory/blob/master/active_directory.py>)
 
 Rewrite for Python3 with minimized dependencies
-by Rainer Schwarzbach, 2021-02-01
+by Rainer Schwarzbach, 2021-02-02
 
 License: MIT
 
@@ -202,7 +202,7 @@ class UnsignedIntegerMapping:
         return '<%s: %s>' % (
             self.__class__.__name__,
             ', '.join(
-                '%s <=> %s' % (name, number)
+                '%s \u2194 %s' % (name, number)
                 for (name, number) in self.items()))
 
 
@@ -357,7 +357,8 @@ class RecordSet:
         suitable for output
         """
         return '{\n%s\n}' % (
-            ', '.join('  %s=%r' % field for field in self.dump_fields()))
+            ',\n'.join(
+                '  %s \u21d2 %r' % field for field in self.dump_fields()))
 
 
 class PathComponent:
@@ -574,7 +575,8 @@ class LdapEntry:
     """
 
     additional_properties = {'ADsPath'}
-    ignore_properties = {'nTSecurityDescriptor'}
+    ignored_properties = {'nTSecurityDescriptor'}
+    ignored_types = (memoryview, win32com.client.CDispatch)
     conversions = dict(
         accountExpires=Convert.to_datetime,
         ADsPath=LdapPath.from_string,
@@ -606,23 +608,22 @@ class LdapEntry:
         uSNCreated=Convert.to_datetime)
 
     def __init__(self, com_object):
-        """Store properties form the provided COM object.
-        The property names are determined from the schema,
+        """Store the largest part of properties from the provided
+        COM object. Property names are determined from the schema,
         plus the required (cls.)additional_properties,
-        minus the preformance-degrading (cls.)ignore_properties.
+        minus the preformance-degrading (cls.)ignored_properties.
         Additionally, properties that still are COM objects itself
         or memoryviews after the conversion will be ignored.
         """
         schema = win32com.client.GetObject(com_object.Schema)
-        property_names = tuple(
-            single_property for single_property in
+        property_names = (
             set(schema.MandatoryProperties)
             | set(schema.OptionalProperties)
             | self.additional_properties
-            if single_property not in self.ignore_properties)
+            - self.ignored_properties)
         self.__case_translation = dict()
         self.__property_cache = dict()
-        self.__empty_properties = set()
+        empty_properties = set()
         for name in property_names:
             try:
                 com_property = getattr(com_object, name)
@@ -637,34 +638,25 @@ class LdapEntry:
                 pass
             #
             if com_property is None:
-                self.__empty_properties.add(name)
+                empty_properties.add(name)
                 continue
             #
             self.__add_property(name, com_property)
         #
+        self.empty_properties = frozenset(empty_properties)
         self.items = self.__property_cache.items
-
-    @property
-    def empty_properties(self):
-        """Return a sorted list of empty properties' names"""
-        return sorted(self.__empty_properties)
-
-    @property
-    def ldap_url(self):
-        """Return the LDAP URL of the entry"""
-        return self.ADsPath.url
+        self.ldap_url = self.ADsPath.url
 
     def __add_property(self, name, value):
         """Add a property value only if it is not a
         COM Object or a memoryview (or a collection of those)
         """
         if isinstance(value, (list, tuple)):
-            if value and isinstance(
-                    value[0], (memoryview, win32com.client.CDispatch)):
+            if value and isinstance(value[0], self.ignored_types):
                 return
             #
         #
-        if not isinstance(value, (memoryview, win32com.client.CDispatch)):
+        if not isinstance(value, self.ignored_types):
             self.__property_cache[name] = value
         #
 
@@ -684,7 +676,7 @@ class LdapEntry:
         """
         print('%r\n{' % self)
         for (name, value) in sorted(self.items()):
-            print('  %s \u2192 %r' % (name, value))
+            print('  %s \u21d2 %r' % (name, value))
         #
         print('}')
 
@@ -693,9 +685,7 @@ class LdapEntry:
         return self.objectGUID == other.objectGUID
 
     def __getattr__(self, name):
-        """Instance attribute access to the com object's properties
-        via item access
-        """
+        """LDAP entry attribute access via item access"""
         try:
             return self[name]
         except KeyError as error:
@@ -712,7 +702,7 @@ class LdapEntry:
         try:
             return self.__property_cache[translated_name]
         except KeyError:
-            if translated_name in self.__empty_properties:
+            if translated_name in self.empty_properties:
                 return None
             #
         #
@@ -726,7 +716,7 @@ class LdapEntry:
         """Return a representation with the class name
         and the path
         """
-        return "<%s: %s>" % (self.__class__.__name__, str(self.ADsPath))
+        return '<%s: %s>' % (self.__class__.__name__, str(self))
 
     def __str__(self):
         """Return the path"""
