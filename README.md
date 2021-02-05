@@ -5,6 +5,8 @@ _forked from Tim Golden's active_directory.py v0.6.7_
 
 ## Module description
 
+Installation: ```pip install read-ad```
+
 Module name: ```read_ad```
 
 Dependencies: Python 3.x and the pywin32 module (https://pypi.org/project/pywin32/)
@@ -192,18 +194,18 @@ Instances of this class hold a primary key name and a mapping of fixed parameter
 
 #### LdapEntry(_com\_object_)
 
-Stores a subset of an LDAP entry's properties.
-The stored properties can be accessed via item access using \[_property\_name_\]
-or (in the case of suitable property names) via attribute access using ._property\_name_
+Stores a subset of an LDAP entry's attributes.
+The stored attributes can be accessed via item access using \[_attribute\_name_\]
+or (in the case of suitable attribute names) via attribute access using ._attribute\_name_
 
-LDAP entry property names are case insensitive.
+Note: LDAP entry attribute names are case insensitive.
 
 All **LdapPath** and subclasses instances should be instantiated 
 by using the **produce\_entry()** function below.
 
-##### .empty\_properties
+##### .empty\_attributes
 
-> A frozenset of the names of all properties having the value None.
+> A frozenset of the names of all attributes having the value None.
 
 ##### .ldap_url
 
@@ -214,22 +216,23 @@ by using the **produce\_entry()** function below.
 > Returns an **LdapEntry** subclass instance for a relative child of this instance.
 > Its path is determined by prepending the _single\_path\_component_ to this instance's path. 
 
-##### .items()
+##### .stored_attributes_items()
 
-> Returns an iterator over the property names and their values as dict items
-> (if the value is not None).
+> Returns an items dictview of the internal mapping of stored attributes.
+> Please note that empty attributes are not contained here; only their names
+> are stored in the **.empty_attributes** frozenset.
 
 ##### .print_dump()
 
 > Prints a case-sensitive (i.e. uppercase before lowercase) alphabetically sorted dump
-> of non-empty properties.
+> of all non-empty attributes.
 
 
 #### User(_com\_object_)
 
 **LdapEntry** subclass for Active Directory users
 
-Interesting properties include:
+Interesting attributes include:
 * ```sAMAccountName``` - the user ID
 * ```givenName``` - the first name
 * ```sn``` - the last name
@@ -247,7 +250,7 @@ Interesting properties include:
 
 **LdapEntry** subclass for Active Directory groups
 
-Interesting properties include:
+Interesting attributes include:
 * ```member``` - all direct members (users and groups, a tuple of distinguished names)
 * ```memberOf``` - all groups this group is a direct member of (a tuple of distinguished names)
 
