@@ -1,7 +1,7 @@
 # python-read-ad
 
-COM-based readonly access for Active Directory in Python,
-_forked from Tim Golden's active_directory.py v0.6.7_
+COM-based readonly access for Active Directory in Python 3,
+_forked from Tim Golden's active\_directory.py v0.6.7_
 
 ## Module description
 
@@ -24,60 +24,60 @@ version of the original, hosted at https://github.com/tjguk/active_directory.
 
 #### Constants for ADO/COM access ###
 
-##### ADO_COMMAND
+##### ADO\_COMMAND
 
 > ```'ADODB.Command'```
 
-##### ADO_CONNECTION
+##### ADO\_CONNECTION
 
 > ```'ADODB.Connection'```
 
-##### CONNECTION_PROVIDER
+##### CONNECTION\_PROVIDER
 
 > ```'ADsDSOObject'```
 
-##### CONNECTION_TARGET
+##### CONNECTION\_TARGET
 
 > ```'Active Directory Provider'```
 
 #### Internal cache keywords ####
 
-##### CACHE_KEY_CONNECTION
+##### CACHE\_KEY\_CONNECTION
 
 > ```'_Connection_'``` as the key for caching the connection object.
 
-##### CACHE_KEY_ROOT
+##### CACHE\_KEY\_ROOT
 
 > ```'_ActiveDirectoryRoot_'``` as the key for caching the Active Directory root URL.
 
 #### Mappings ####
 
-##### GLOBAL_CACHE
+##### GLOBAL\_CACHE
 
 > A global cache of **LdapEntry** objects mapped to LDAP Urls,
 > plus the connection object and the Active Directory root URL.
 
-##### GROUP_TYPES
+##### GROUP\_TYPES
 
 > A **FlagsMapping()** with Active Directory group type bitmasks
 > (values are taken from https://github.com/tjguk/active_directory/blob/master/active_directory.py#L164)
 
-##### AUTHENTICATION_TYPES
+##### AUTHENTICATION\_TYPES
 
 > A **FlagsMapping()** with Active Directory authentication type bitmasks
 > (values are taken from https://github.com/tjguk/active_directory/blob/master/active_directory.py#L172)
 
-##### SAM_ACCOUNT_TYPES
+##### SAM\_ACCOUNT\_TYPES
 
 > A **UnsignedIntegerMapping()** with Active Directory account type magic numbers
 > (values are taken from https://github.com/tjguk/active_directory/blob/master/active_directory.py#L187)
 
-##### USER_ACCOUNT_CONTROL
+##### USER\_ACCOUNT\_CONTROL
 
 > A **FlagsMapping()** with Active Directory user account state bitmasks
 > (values are taken from https://github.com/tjguk/active_directory/blob/master/active_directory.py#L202)
 
-##### SEARCH_FILTERS
+##### SEARCH\_FILTERS
 
 > A dict of **SearchFilter** instances mapped to the following keywords:
 > * ```'computer'``` for searching computers by ```cn```
@@ -92,9 +92,9 @@ version of the original, hosted at https://github.com/tjguk/active_directory.
 #### UnsignedIntegerMapping(_\*\*kwargs_)
 
 A Mapping of unsigned integers to names with reverse lookup functionality.
-Member access usng a name returns the associated number und vice versa.
+Member access using a name returns the associated number and vice versa.
 
-##### .get_name(_number_)
+##### .get\_name(_number_)
 
 > Explicitly returns the name associated with the given number.
 
@@ -103,7 +103,7 @@ Member access usng a name returns the associated number und vice versa.
 
 An **UnsignedIntegerMapping** subclass for bitmasks mapped to flag names
 
-##### .get_flag_names(_number_)
+##### .get\_flag\_names(_number_)
 
 > Returns a set of all flag names for the bitmasks matching the given number.
 
@@ -122,13 +122,13 @@ https://docs.microsoft.com/windows/win32/adsi/searching-with-activex-data-object
 > The query may be parameterized using keyword arguments.
 > Underscores in the keywords will be replaced by spaces.
 
-> The following parametrs are preset for the query but may be overridden:
+> The following parameters are preset for the query but may be overridden:
 > * Asynchronous=True
 > * Timeout=1
 
-##### .dump_fields()
+##### .dump\_fields()
 
-> Returns an iterator over the recordset fields as (fname, value) tuples
+> Returns an iterator over the recordset fields as (name, value) tuples
 
 
 #### PathComponent(_keyword, value_)
@@ -144,7 +144,7 @@ They are initialized with a keyword and a value, in this example: ```'cn'``` and
 
 > The value
 
-##### .from_string(string)
+##### .from\_string(string)
 
 > _Constructor (class)method_, returns a **PathComponent** instance built from keyword and value determined by splitting _string_ at a non-escaped equals sign (```=```).
 
@@ -152,7 +152,7 @@ They are initialized with a keyword and a value, in this example: ```'cn'``` and
 #### LdapPath(_\*parts_)
 
 Instances of this class represent an LDAP path.
-They are initialized using the provided parts, which can be strings or **PathComponent** instances.
+They are initialized using the provided parts, which can be either strings or **PathComponent** instances.
 
 ##### .components
 
@@ -166,7 +166,7 @@ They are initialized using the provided parts, which can be strings or **PathCom
 
 > The LDAP URL of the path (the distinguished name prefixed with ```'LDAP://'```)
 
-##### .from_string(string)
+##### .from\_string(string)
 
 > _Constructor (class)method_, returns an **LdapPath** instance built from the provided _string_ splitted at all non-escaped commas (```,```).
 
@@ -175,14 +175,14 @@ They are initialized using the provided parts, which can be strings or **PathCom
 
 Instances of this class hold a primary key name and a mapping of fixed parameters for an LDAP search.
 
-##### .execute_query(_ldap\_url, \*args, \*\*kwargs_)
+##### .execute\_query(_ldap\_url, \*args, \*\*kwargs_)
 
 > Return an interator from the result of an LDAP query
 > (using the **RecordSet.query()** class method)
 > starting at _ldap\_url_ and using SQL syntax with the 
-> ```WHERE``` clause genarated by the **.where_clause()** method.
+> ```WHERE``` clause genarated by the **.where\_clause()** method.
 
-##### .where_clause(_\*args, \*\*kwargs_)
+##### .where\_clause(_\*args, \*\*kwargs_)
 
 > Return a ```WHERE``` clause for an SQL-like LDAP query string,
 > built from the provided positional and keyword arguments,
@@ -207,7 +207,7 @@ by using the **produce\_entry()** function below.
 
 > A frozenset of the names of all attributes having the value None.
 
-##### .ldap_url
+##### .ldap\_url
 
 > The LDAP URL of the entry.
 
@@ -216,13 +216,13 @@ by using the **produce\_entry()** function below.
 > Returns an **LdapEntry** subclass instance for a relative child of this instance.
 > Its path is determined by prepending the _single\_path\_component_ to this instance's path. 
 
-##### .stored_attributes_items()
+##### .stored\_attributes\_items()
 
 > Returns an items dictview of the internal mapping of stored attributes.
 > Please note that empty attributes are not contained here; only their names
-> are stored in the **.empty_attributes** frozenset.
+> are stored in the **.empty\_attributes** frozenset.
 
-##### .print_dump()
+##### .print\_dump()
 
 > Prints a case-sensitive (i.e. uppercase before lowercase) alphabetically sorted dump
 > of all non-empty attributes.
@@ -239,9 +239,9 @@ Interesting attributes include:
 * ```title``` - eg a PhD
 * ```manager``` - the user's direct boss (distinguished name)
 * ```memberOf``` - all groups the user is a direct member of (a tuple of distinguished names)
-* ```userAccountControl``` - originally a number, but resolved to a set of flag names from **USER_ACCOUNT_CONTROL**
+* ```userAccountControl``` - originally a number, but resolved to a set of flag names from **USER\_ACCOUNT\_CONTROL**
 
-##### .account_disabled
+##### .account\_disabled
 
 > ```True``` if the account is disabled, ```False``` if it is active.  
 
@@ -262,14 +262,14 @@ Interesting attributes include:
 
 ### Public interface functions
 
-#### produce_entry(_ldap\_path, lazy=True_)
+#### produce\_entry(_ldap\_path, lazy=True_)
 
 > **LdapEntry** and subclasses factory function.
 
 > Determines the suitable class out of **LdapEntry**, **User** or **Group** from the
 > COM object found at the LDAP URL.
 > Generates an instance of this class from the COM object,
-> stores it in **GLOBAL_CACHE** (associated to the LDAP path URL),
+> stores it in **GLOBAL\_CACHE** (associated to the LDAP path URL),
 > and returns the Instance.
 
 > _ldap\_path_ may be a string containing either a distinguished name or an LDAP URL
@@ -282,7 +282,7 @@ Interesting attributes include:
 
 #### root(_server=None_)
 
-> Returns the (cached) **DomainDNS** instance referring to the
+> Returns the (cached) **LdapEntry** instance referring to the
 > root of the logged-on Active Directory tree.
 
 #### search(_\*args, active=None, search\_base=None, search\_filter=None, \*\*kwargs_)
@@ -296,7 +296,7 @@ Interesting attributes include:
 
 > If _search_filter_ is set to a SearchFilter instance,
 > this method uses that instance to search the Active Directory.
-> Else, if a keyword matching any of the **SEARCH_FILTERS** keys
+> Else, if a keyword matching any of the **SEARCH\_FILTERS** keys
 > was provided, that search filter is used with this keyword's value
 > specified as the _\_primary\_key\__ keyword's value.  
 > In all other cases, an empty search filter
@@ -307,10 +307,10 @@ Interesting attributes include:
 > the **RecordSet.query()** method execting the query will return a ValueError
 > and display the faulty query string.
 
-#### search_users(_\*args, \*\*kwargs_)
+#### search\_users(_\*args, \*\*kwargs_)
 
 > Returns an iterator over all found LDAP paths like the **search()** function above,
-> but uses the user search filter (**SEARCH_FILTER\[**```'userid'```**\]**) unconditionally.
+> but uses the user search filter (**SEARCH\_FILTER\[**```'userid'```**\]**) unconditionally.
 
 > In contrary to plain **search()**, the first
 > positional argument - if any are provided - is treated differently from the rest:  
@@ -318,15 +318,15 @@ Interesting attributes include:
 > by building suitable conditions joined by ```'OR'```.
 > The remaining positional arguments are treated normally.
 
-#### get_first_entry(_\*args, \*\*kwargs_)
+#### get\_first\_entry(_\*args, \*\*kwargs_)
 
 > Returns an **LdapEntry** or subclass instance made from the first found LDAP entry
 > from an LDAP search using **search()**, or None if nothing was found.
 
-#### get_first_user(_\*args, \*\*kwargs_)
+#### get\_first\_user(_\*args, \*\*kwargs_)
 
 > Returns a **User** instance made from the first found LDAP entry
-> from an LDAP search using **search_users()**, or None if nothing was found.
+> from an LDAP search using **search\_users()**, or None if nothing was found.
 
 
 ## Examples
