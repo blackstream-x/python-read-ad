@@ -13,7 +13,7 @@ with a few cherry-picks from the current implementation
 (<https://github.com/tjguk/active_directory/blob/master/active_directory.py>)
 
 Rewrite for Python3 with minimized dependencies
-by Rainer Schwarzbach, 2021-02-02
+by Rainer Schwarzbach, 2021-02-05
 
 License: MIT
 
@@ -86,7 +86,7 @@ def signed_to_unsigned(number):
 
 class Convert:
 
-    """A collection of converter methods for LdapEntry properties"""
+    """A collection of converter methods for LdapEntry attributes"""
 
     base_time = datetime.datetime(1601, 1, 1)
     time_never_high_part = 0x7fffffff
@@ -123,7 +123,7 @@ class Convert:
 
     @classmethod
     def to_guid(cls, item):
-        """Return a GUID from an LDAP entry's property"""
+        """Return a GUID from an LDAP entry's attribute"""
         if item is None:
             return None
         #
@@ -569,13 +569,16 @@ SEARCH_FILTERS = {
 
 class LdapEntry:
 
-    """Store a subset of an LDAP entry's properties.
+    """Store a subset of an LDAP entry's attributes.
     Should be instantiated via the produce_entry()
     factory function.
     """
 
-    additional_properties = {'ADsPath'}
-    ignored_properties = {'nTSecurityDescriptor'}
+    additional_attributes = {'ADsPath'}
+    ignored_attributes = {
+        'dSCorePropagationData',
+        'nTSecurityDescriptor',
+        'userParameters'}
     ignored_types = (memoryview, win32com.client.CDispatch)
     conversions = dict(
         accountExpires=Convert.to_datetime,
@@ -608,57 +611,54 @@ class LdapEntry:
         uSNCreated=Convert.to_datetime)
 
     def __init__(self, com_object):
-        """Store the largest part of properties from the provided
-        COM object. Property names are determined from the schema,
-        plus the required (cls.)additional_properties,
-        minus the preformance-degrading (cls.)ignored_properties.
-        Additionally, properties that still are COM objects itself
+        """Store the largest part of attributes from the provided
+        COM object. Attribute names are determined from the schema,
+        plus the required (cls.)additional_attributes,
+        minus the preformance-degrading or non-interesting
+        (cls.)ignored_attributes.
+        Additionally, attributes that still are COM objects itself
         or memoryviews after the conversion will be ignored.
         """
         schema = win32com.client.GetObject(com_object.Schema)
-        property_names = (
+        attribute_names = (
             set(schema.MandatoryProperties)
             | set(schema.OptionalProperties)
-            | self.additional_properties
-            - self.ignored_properties)
+            | self.additional_attributes) - self.ignored_attributes
         self.__case_translation = dict()
-        self.__property_cache = dict()
-        empty_properties = set()
-        for name in property_names:
+        self.__stored_attributes = dict()
+        empty_attributes = set()
+        for name in attribute_names:
             try:
-                com_property = getattr(com_object, name)
+                com_attribute = getattr(com_object, name)
             except AttributeError:
-                logging.warning('Property %r not found', name)
+                logging.error('Attribute %r not found', name)
                 continue
             #
-            self.__case_translation[name.lower()] = name
             try:
-                com_property = self.conversions[name](com_property)
+                com_attribute = self.conversions[name](com_attribute)
             except KeyError:
                 pass
             #
-            if com_property is None:
-                empty_properties.add(name)
+            # For empty attributes, store only the names.
+            # Ignore attribute values that are COM objects
+            # or memoryview instances (or collections of those)
+            if com_attribute is None:
+                empty_attributes.add(name)
+                continue
+            elif isinstance(com_attribute, (list, tuple)):
+                if com_attribute and isinstance(com_attribute[0],
+                                                self.ignored_types):
+                    continue
+                #
+            elif isinstance(com_attribute, self.ignored_types):
                 continue
             #
-            self.__add_property(name, com_property)
+            self.__case_translation[name.lower()] = name
+            self.__stored_attributes[name] = com_attribute
         #
-        self.empty_properties = frozenset(empty_properties)
-        self.items = self.__property_cache.items
+        self.empty_attributes = frozenset(empty_attributes)
+        self.stored_attributes_items = self.__stored_attributes.items
         self.ldap_url = self.ADsPath.url
-
-    def __add_property(self, name, value):
-        """Add a property value only if it is not a
-        COM Object or a memoryview (or a collection of those)
-        """
-        if isinstance(value, (list, tuple)):
-            if value and isinstance(value[0], self.ignored_types):
-                return
-            #
-        #
-        if not isinstance(value, self.ignored_types):
-            self.__property_cache[name] = value
-        #
 
     def child(self, single_path_cmponent):
         """Return the relative child of this entry.
@@ -671,11 +671,11 @@ class LdapEntry:
                      *self.self.ADsPath.components))
 
     def print_dump(self):
-        """Print all non-empty properties in
+        """Print all non-empty attributes in
         (case-sensitive) alphabetical order
         """
         print('%r\n{' % self)
-        for (name, value) in sorted(self.items()):
+        for (name, value) in sorted(self.stored_attributes_items()):
             print('  %s \u21d2 %r' % (name, value))
         #
         print('}')
@@ -695,14 +695,14 @@ class LdapEntry:
         #
 
     def __getitem__(self, name):
-        """Access the properties as dict members,
+        """Access the attributes as dict members,
         using case-insensitive names
         """
         translated_name = self.__case_translation[name.lower()]
         try:
-            return self.__property_cache[translated_name]
+            return self.__stored_attributes[translated_name]
         except KeyError:
-            if translated_name in self.empty_properties:
+            if translated_name in self.empty_attributes:
                 return None
             #
         #
@@ -828,7 +828,7 @@ def search(*args,
 
     If 'active' is set to True or False explicitly,
     yield the path only if the userAccountControl
-    property value matches the desired state.
+    attribute value matches the desired state.
 
     if 'search_filter' is not set, determine a search filter
     automatically.
@@ -868,7 +868,7 @@ def search(*args,
                 yield result.ADsPath
             #
         except TypeError:
-            # no userAccountControl property
+            # no userAccountControl attribute
             yield result.ADsPath
         #
     #
@@ -905,7 +905,7 @@ def get_first_entry(*args, **kwargs):
 
 
 def get_first_user(*args, **kwargs):
-    """Find a user by name or other properties
+    """Find a user by name or other attributes
     from the cached root entry
     """
     for found_path in search_users(*args, **kwargs):
