@@ -626,7 +626,7 @@ class LdapEntry:
             | self.additional_attributes) - self.ignored_attributes
         self.__case_translation = dict()
         self.__stored_attributes = dict()
-        empty_attributes = set()
+        self.__empty_attributes = set()
         for name in attribute_names:
             try:
                 com_attribute = getattr(com_object, name)
@@ -639,26 +639,35 @@ class LdapEntry:
             except KeyError:
                 pass
             #
-            # For empty attributes, store only the names.
-            # Ignore attribute values that are COM objects
-            # or memoryview instances (or collections of those)
-            if com_attribute is None:
-                empty_attributes.add(name)
-                continue
-            elif isinstance(com_attribute, (list, tuple)):
-                if com_attribute and isinstance(com_attribute[0],
-                                                self.ignored_types):
-                    continue
-                #
-            elif isinstance(com_attribute, self.ignored_types):
+            try:
+                self.__add_value(name, com_attribute)
+            except ValueError:
                 continue
             #
-            self.__case_translation[name.lower()] = name
-            self.__stored_attributes[name] = com_attribute
         #
-        self.empty_attributes = frozenset(empty_attributes)
+        self.empty_attributes = frozenset(self.__empty_attributes)
         self.stored_attributes_items = self.__stored_attributes.items
         self.ldap_url = self.ADsPath.url
+
+    def __add_value(self, name, value):
+        """Add the value or raise a ValueError for ignored types"""
+        if isinstance(value, (list, tuple)):
+            try:
+                if isinstance(value[0], self.ignored_types):
+                    raise ValueError
+                #
+            except IndexError:
+                pass
+            #
+        elif isinstance(value, self.ignored_types):
+            raise ValueError
+        #
+        self.__case_translation[name.lower()] = name
+        if value is None:
+            self.__empty_attributes.add(name)
+        else:
+            self.__stored_attributes[name] = value
+        #
 
     def child(self, single_path_cmponent):
         """Return the relative child of this entry.
